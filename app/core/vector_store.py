@@ -11,24 +11,11 @@
 # from app.core.logger import logger
 # from app.config import QDRANT_HOST, QDRANT_PORT
 
-# # Connect to local Qdrant
-# # client = QdrantClient(host="localhost", port=6333)
 # client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 
 # COLLECTION_NAME = "astramind_collection"
 
 
-# # ----------------------------
-# # Create Collection (if needed)
-# # ----------------------------
-# # def create_collection():
-# #     client.recreate_collection(
-# #         collection_name=COLLECTION_NAME,
-# #         vectors_config=VectorParams(
-# #             size=1536,  # OpenAI embedding dimension
-# #             distance=Distance.COSINE,
-# #         ),
-# #     )
 # def create_collection():
 #     client.recreate_collection(
 #         collection_name=COLLECTION_NAME,
@@ -38,7 +25,7 @@
 #         ),
 #     )
 
-#     # 🔐 Add payload index for department filtering
+#     # Payload index for department filtering
 #     client.create_payload_index(
 #         collection_name=COLLECTION_NAME,
 #         field_name="department",
@@ -46,19 +33,8 @@
 #     )
 
 
-# # ----------------------------
-# # Add Text to Vector Store
-# # ----------------------------
 # def add_text(text: str, doc_id: str, metadata: dict = None):
 #     try:
-#         # 🔐 Ensure collection exists
-#         collections = client.get_collections().collections
-#         existing_names = [c.name for c in collections]
-
-#         if COLLECTION_NAME not in existing_names:
-#             logger.info("Collection not found. Creating collection.")
-#             create_collection()
-
 #         embedding = generate_embedding(text)
 
 #         payload = metadata.copy() if metadata else {}
@@ -79,15 +55,12 @@
 #         logger.error(f"Vector store upsert failed: {str(e)}")
 #         raise
 
-# # ----------------------------
-# # Search Text with Department Filtering
-# # ----------------------------
-# def search_text(query: str, department: str = None, limit: int = 3):
+
+# def search_text(query: str, department: str = None, limit: int = 5):
 
 #     try:
 #         query_vector = generate_embedding(query)
 
-#         # Build filter only if department is provided
 #         search_filter = None
 
 #         if department:
@@ -100,18 +73,82 @@
 #                 ]
 #             )
 
-#         results = client.query_points(
+#         # ----------------------------------------
+#         # 1️⃣ Detect generic repository question
+#         # ----------------------------------------
+#         generic_repo_keywords = [
+#             "what does this repository do",
+#             "what is this repository",
+#             "what is this project",
+#             "about this repository",
+#             "about this project"
+#         ]
+
+#         is_generic_repo_query = any(
+#             phrase in query.lower()
+#             for phrase in generic_repo_keywords
+#         )
+
+#         readme_payloads = []
+
+#         if is_generic_repo_query and department:
+
+#             # 🔥 Fetch README chunks directly by metadata ONLY
+#             readme_filter = Filter(
+#                 must=[
+#                     FieldCondition(
+#                     key="department",
+#                     match=MatchValue(value=department)
+#                     ),
+#                     FieldCondition(
+#                     key="is_primary_chunk",
+#                     match=MatchValue(value=True)
+#                     )
+#                 ]
+#             )
+
+#             scroll_result = client.scroll(
+#                 collection_name=COLLECTION_NAME,
+#                 scroll_filter=readme_filter,
+#                 limit=50,
+#                 with_payload=True
+#             )
+
+#             readme_payloads = [point.payload for point in scroll_result[0]]
+
+#         # ----------------------------------------
+#         # 2️⃣ Semantic search fallback
+#         # ----------------------------------------
+#         semantic_results = client.query_points(
 #             collection_name=COLLECTION_NAME,
 #             query=query_vector,
-#             limit=limit,
+#             limit=20,
 #             query_filter=search_filter
 #         )
 
+#         semantic_payloads = [p.payload for p in semantic_results.points]
+
+#         # ----------------------------------------
+#         # 3️⃣ Merge (README first)
+#         # ----------------------------------------
+#         combined = readme_payloads + semantic_payloads
+
+#         seen = set()
+#         final_payloads = []
+
+#         for payload in combined:
+#             text = payload.get("text")
+#             if text and text not in seen:
+#                 seen.add(text)
+#                 final_payloads.append(payload)
+
+#         # ----------------------------------------
+#         # 4️⃣ Return top chunks
+#         # ----------------------------------------
 #         retrieved = []
 
-#         for point in results.points:
-#             if "text" in point.payload:
-#                 retrieved.append(point.payload["text"])
+#         for payload in final_payloads[:limit]:
+#             retrieved.append(payload["text"])
 
 #         return retrieved
 
@@ -122,6 +159,7 @@
 
 
 
+import os
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     VectorParams,
@@ -131,14 +169,29 @@ from qdrant_client.models import (
     FieldCondition,
     MatchValue
 )
+
 from app.core.embeddings import generate_embedding
 from app.core.logger import logger
 from app.config import QDRANT_HOST, QDRANT_PORT
 
-client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+# ============================================================
+# Qdrant Cloud Authentication
+# ============================================================
+
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
+
+client = QdrantClient(
+    host=QDRANT_HOST,
+    port=QDRANT_PORT,
+    api_key=QDRANT_API_KEY
+)
 
 COLLECTION_NAME = "astramind_collection"
 
+
+# ============================================================
+# Collection Creation
+# ============================================================
 
 def create_collection():
     client.recreate_collection(
@@ -156,6 +209,10 @@ def create_collection():
         field_schema="keyword"
     )
 
+
+# ============================================================
+# Add Text to Vector Store
+# ============================================================
 
 def add_text(text: str, doc_id: str, metadata: dict = None):
     try:
@@ -180,6 +237,10 @@ def add_text(text: str, doc_id: str, metadata: dict = None):
         raise
 
 
+# ============================================================
+# Vector Search
+# ============================================================
+
 def search_text(query: str, department: str = None, limit: int = 5):
 
     try:
@@ -197,9 +258,9 @@ def search_text(query: str, department: str = None, limit: int = 5):
                 ]
             )
 
-        # ----------------------------------------
-        # 1️⃣ Detect generic repository question
-        # ----------------------------------------
+        # ------------------------------------------------------------
+        # Detect generic repository question
+        # ------------------------------------------------------------
         generic_repo_keywords = [
             "what does this repository do",
             "what is this repository",
@@ -217,16 +278,15 @@ def search_text(query: str, department: str = None, limit: int = 5):
 
         if is_generic_repo_query and department:
 
-            # 🔥 Fetch README chunks directly by metadata ONLY
             readme_filter = Filter(
                 must=[
                     FieldCondition(
-                    key="department",
-                    match=MatchValue(value=department)
+                        key="department",
+                        match=MatchValue(value=department)
                     ),
                     FieldCondition(
-                    key="is_primary_chunk",
-                    match=MatchValue(value=True)
+                        key="is_primary_chunk",
+                        match=MatchValue(value=True)
                     )
                 ]
             )
@@ -240,9 +300,10 @@ def search_text(query: str, department: str = None, limit: int = 5):
 
             readme_payloads = [point.payload for point in scroll_result[0]]
 
-        # ----------------------------------------
-        # 2️⃣ Semantic search fallback
-        # ----------------------------------------
+        # ------------------------------------------------------------
+        # Semantic Search
+        # ------------------------------------------------------------
+
         semantic_results = client.query_points(
             collection_name=COLLECTION_NAME,
             query=query_vector,
@@ -252,9 +313,10 @@ def search_text(query: str, department: str = None, limit: int = 5):
 
         semantic_payloads = [p.payload for p in semantic_results.points]
 
-        # ----------------------------------------
-        # 3️⃣ Merge (README first)
-        # ----------------------------------------
+        # ------------------------------------------------------------
+        # Merge Results
+        # ------------------------------------------------------------
+
         combined = readme_payloads + semantic_payloads
 
         seen = set()
@@ -262,13 +324,15 @@ def search_text(query: str, department: str = None, limit: int = 5):
 
         for payload in combined:
             text = payload.get("text")
+
             if text and text not in seen:
                 seen.add(text)
                 final_payloads.append(payload)
 
-        # ----------------------------------------
-        # 4️⃣ Return top chunks
-        # ----------------------------------------
+        # ------------------------------------------------------------
+        # Return Top Chunks
+        # ------------------------------------------------------------
+
         retrieved = []
 
         for payload in final_payloads[:limit]:
