@@ -1,5 +1,5 @@
 # import time
-# from typing import List
+# from typing import List, Dict
 
 # from openai import OpenAI
 
@@ -46,7 +46,7 @@
 
 
 # # ============================================================
-# # Confidence Score Calculation
+# # Confidence Score
 # # ============================================================
 
 # def calculate_confidence(chunks: List[str]) -> float:
@@ -82,13 +82,28 @@
 
 
 # # ============================================================
-# # Answer Evaluation (Unique Feature)
+# # Retrieval Transparency (NEW FEATURE)
+# # ============================================================
+
+# def rank_contexts(chunks: List[str]) -> List[Dict]:
+
+#     ranked = []
+
+#     for idx, chunk in enumerate(chunks):
+
+#         ranked.append({
+#             "rank": idx + 1,
+#             "text": chunk
+#         })
+
+#     return ranked[:3]
+
+
+# # ============================================================
+# # Answer Evaluation
 # # ============================================================
 
 # def evaluate_answer_quality(context_chunks, answer, confidence):
-#     """
-#     Self-evaluation logic for RAG answers.
-#     """
 
 #     context_length = sum(len(chunk) for chunk in context_chunks)
 
@@ -156,10 +171,6 @@
 
 #     start_time = time.time()
 
-#     # ------------------------------------------------------------
-#     # Prompt Injection Guard
-#     # ------------------------------------------------------------
-
 #     if detect_prompt_injection(query):
 
 #         return {
@@ -167,16 +178,13 @@
 #             "answer": "Potential prompt injection detected. Request rejected.",
 #             "confidence": 0,
 #             "sources": [],
+#             "top_contexts": [],
 #             "evaluation": None,
 #             "context_used": [],
 #             "session_id": session_id,
 #             "tool_used": None,
 #             "evaluation_enabled": ENABLE_EVALUATION
 #         }
-
-#     # ------------------------------------------------------------
-#     # Vector Retrieval
-#     # ------------------------------------------------------------
 
 #     try:
 
@@ -191,16 +199,13 @@
 #             "answer": "Knowledge retrieval system unavailable.",
 #             "confidence": 0,
 #             "sources": [],
+#             "top_contexts": [],
 #             "evaluation": None,
 #             "context_used": [],
 #             "session_id": session_id,
 #             "tool_used": None,
 #             "evaluation_enabled": ENABLE_EVALUATION
 #         }
-
-#     # ------------------------------------------------------------
-#     # Empty Context Guard
-#     # ------------------------------------------------------------
 
 #     if not retrieved_chunks:
 
@@ -209,16 +214,13 @@
 #             "answer": "No relevant documents found for this department.",
 #             "confidence": 0,
 #             "sources": [],
+#             "top_contexts": [],
 #             "evaluation": None,
 #             "context_used": [],
 #             "session_id": session_id,
 #             "tool_used": None,
 #             "evaluation_enabled": ENABLE_EVALUATION
 #         }
-
-#     # ------------------------------------------------------------
-#     # Build Context
-#     # ------------------------------------------------------------
 
 #     context = build_context(retrieved_chunks)
 
@@ -228,23 +230,13 @@
 #     if len(context) + len(query) > MAX_PROMPT_TOTAL_CHARS:
 #         context = context[:MAX_PROMPT_TOTAL_CHARS - len(query)]
 
-#     # ------------------------------------------------------------
-#     # LLM Answer
-#     # ------------------------------------------------------------
-
 #     answer = generate_answer_from_llm(query, context)
-
-#     # ------------------------------------------------------------
-#     # Confidence + Sources
-#     # ------------------------------------------------------------
 
 #     confidence = calculate_confidence(retrieved_chunks)
 
 #     sources = extract_sources(retrieved_chunks)
 
-#     # ------------------------------------------------------------
-#     # Evaluation (Unique Feature)
-#     # ------------------------------------------------------------
+#     top_contexts = rank_contexts(retrieved_chunks)
 
 #     evaluation = None
 
@@ -255,10 +247,6 @@
 #             confidence
 #         )
 
-#     # ------------------------------------------------------------
-#     # Logging
-#     # ------------------------------------------------------------
-
 #     latency = round((time.time() - start_time) * 1000, 2)
 
 #     logger.info({
@@ -267,21 +255,19 @@
 #         "latency_ms": latency
 #     })
 
-#     # ------------------------------------------------------------
-#     # Final Response
-#     # ------------------------------------------------------------
-
 #     return {
 #         "question": query,
 #         "answer": answer,
 #         "confidence": confidence,
 #         "sources": sources,
+#         "top_contexts": top_contexts,
 #         "evaluation": evaluation,
 #         "context_used": retrieved_chunks,
 #         "session_id": session_id,
 #         "tool_used": None,
 #         "evaluation_enabled": ENABLE_EVALUATION
 #     }
+
 
 
 
@@ -369,7 +355,7 @@ def extract_sources(chunks: List[str]) -> List[str]:
 
 
 # ============================================================
-# Retrieval Transparency (NEW FEATURE)
+# Retrieval Transparency
 # ============================================================
 
 def rank_contexts(chunks: List[str]) -> List[Dict]:
@@ -458,6 +444,10 @@ def generate_rag_answer(query: str, session_id: str, department: str):
 
     start_time = time.time()
 
+    # ------------------------------------------------------------
+    # Prompt Injection Guard
+    # ------------------------------------------------------------
+
     if detect_prompt_injection(query):
 
         return {
@@ -470,8 +460,12 @@ def generate_rag_answer(query: str, session_id: str, department: str):
             "context_used": [],
             "session_id": session_id,
             "tool_used": None,
-            "evaluation_enabled": ENABLE_EVALUATION
+            "evaluation_enabled": True if ENABLE_EVALUATION else False
         }
+
+    # ------------------------------------------------------------
+    # Vector Retrieval
+    # ------------------------------------------------------------
 
     try:
 
@@ -491,8 +485,12 @@ def generate_rag_answer(query: str, session_id: str, department: str):
             "context_used": [],
             "session_id": session_id,
             "tool_used": None,
-            "evaluation_enabled": ENABLE_EVALUATION
+            "evaluation_enabled": True if ENABLE_EVALUATION else False
         }
+
+    # ------------------------------------------------------------
+    # Empty Context Guard
+    # ------------------------------------------------------------
 
     if not retrieved_chunks:
 
@@ -506,18 +504,38 @@ def generate_rag_answer(query: str, session_id: str, department: str):
             "context_used": [],
             "session_id": session_id,
             "tool_used": None,
-            "evaluation_enabled": ENABLE_EVALUATION
+            "evaluation_enabled": True if ENABLE_EVALUATION else False
         }
+
+    # ------------------------------------------------------------
+    # Build Context
+    # ------------------------------------------------------------
 
     context = build_context(retrieved_chunks)
 
     if len(context) > MAX_CONTEXT_CHARS:
         context = context[:MAX_CONTEXT_CHARS]
 
-    if len(context) + len(query) > MAX_PROMPT_TOTAL_CHARS:
-        context = context[:MAX_PROMPT_TOTAL_CHARS - len(query)]
+    total_prompt_size = len(context) + len(query)
+
+    if total_prompt_size > MAX_PROMPT_TOTAL_CHARS:
+
+        allowed_context_size = MAX_PROMPT_TOTAL_CHARS - len(query)
+
+        if allowed_context_size > 0:
+            context = context[:allowed_context_size]
+        else:
+            context = ""
+
+    # ------------------------------------------------------------
+    # LLM Answer
+    # ------------------------------------------------------------
 
     answer = generate_answer_from_llm(query, context)
+
+    # ------------------------------------------------------------
+    # Confidence + Sources
+    # ------------------------------------------------------------
 
     confidence = calculate_confidence(retrieved_chunks)
 
@@ -525,14 +543,23 @@ def generate_rag_answer(query: str, session_id: str, department: str):
 
     top_contexts = rank_contexts(retrieved_chunks)
 
+    # ------------------------------------------------------------
+    # Evaluation
+    # ------------------------------------------------------------
+
     evaluation = None
 
     if ENABLE_EVALUATION:
+
         evaluation = evaluate_answer_quality(
             retrieved_chunks,
             answer,
             confidence
         )
+
+    # ------------------------------------------------------------
+    # Logging
+    # ------------------------------------------------------------
 
     latency = round((time.time() - start_time) * 1000, 2)
 
@@ -541,6 +568,10 @@ def generate_rag_answer(query: str, session_id: str, department: str):
         "department": department,
         "latency_ms": latency
     })
+
+    # ------------------------------------------------------------
+    # Final Response
+    # ------------------------------------------------------------
 
     return {
         "question": query,
@@ -552,5 +583,5 @@ def generate_rag_answer(query: str, session_id: str, department: str):
         "context_used": retrieved_chunks,
         "session_id": session_id,
         "tool_used": None,
-        "evaluation_enabled": ENABLE_EVALUATION
+        "evaluation_enabled": True if ENABLE_EVALUATION else False
     }
