@@ -64,7 +64,7 @@ DEFAULT_DEPARTMENT = "general"
 # PRODUCTION SAFETY OVERRIDES
 # ==============================
 
-if IS_PRODUCTION:
+if IS_PRODUCTION and os.getenv("FORCE_DISABLE_EVAL", "false").lower() == "true":
     ENABLE_EVALUATION = False
 
     
