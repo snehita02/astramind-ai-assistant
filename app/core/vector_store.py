@@ -198,21 +198,37 @@ COLLECTION_NAME = "astramind_collection"
 # ============================================================
 
 def create_collection():
-    client.recreate_collection(
-        collection_name=COLLECTION_NAME,
-        vectors_config=VectorParams(
-            size=1536,
-            distance=Distance.COSINE,
-        ),
-    )
 
-    # Payload index for department filtering
-    client.create_payload_index(
-        collection_name=COLLECTION_NAME,
-        field_name="department",
-        field_schema="keyword"
-    )
+    try:
 
+        existing = client.get_collections()
+
+        collection_names = [c.name for c in existing.collections]
+
+        if COLLECTION_NAME in collection_names:
+            logger.info("Collection already exists. Skipping creation.")
+            return
+
+        client.create_collection(
+            collection_name=COLLECTION_NAME,
+            vectors_config=VectorParams(
+                size=1536,
+                distance=Distance.COSINE,
+            ),
+        )
+
+        client.create_payload_index(
+            collection_name=COLLECTION_NAME,
+            field_name="department",
+            field_schema="keyword"
+        )
+
+        logger.info("Vector collection created successfully.")
+
+    except Exception as e:
+
+        logger.error(f"Collection creation failed: {str(e)}")
+        raise
 
 # ============================================================
 # Add Text to Vector Store
