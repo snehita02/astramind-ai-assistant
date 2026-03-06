@@ -82,7 +82,7 @@
 
 
 # # ============================================================
-# # Retrieval Transparency (NEW FEATURE)
+# # Retrieval Transparency
 # # ============================================================
 
 # def rank_contexts(chunks: List[str]) -> List[Dict]:
@@ -171,6 +171,10 @@
 
 #     start_time = time.time()
 
+#     # ------------------------------------------------------------
+#     # Prompt Injection Guard
+#     # ------------------------------------------------------------
+
 #     if detect_prompt_injection(query):
 
 #         return {
@@ -183,8 +187,12 @@
 #             "context_used": [],
 #             "session_id": session_id,
 #             "tool_used": None,
-#             "evaluation_enabled": ENABLE_EVALUATION
+#             "evaluation_enabled": True if ENABLE_EVALUATION else False
 #         }
+
+#     # ------------------------------------------------------------
+#     # Vector Retrieval
+#     # ------------------------------------------------------------
 
 #     try:
 
@@ -204,8 +212,12 @@
 #             "context_used": [],
 #             "session_id": session_id,
 #             "tool_used": None,
-#             "evaluation_enabled": ENABLE_EVALUATION
+#             "evaluation_enabled": True if ENABLE_EVALUATION else False
 #         }
+
+#     # ------------------------------------------------------------
+#     # Empty Context Guard
+#     # ------------------------------------------------------------
 
 #     if not retrieved_chunks:
 
@@ -219,18 +231,38 @@
 #             "context_used": [],
 #             "session_id": session_id,
 #             "tool_used": None,
-#             "evaluation_enabled": ENABLE_EVALUATION
+#             "evaluation_enabled": True if ENABLE_EVALUATION else False
 #         }
+
+#     # ------------------------------------------------------------
+#     # Build Context
+#     # ------------------------------------------------------------
 
 #     context = build_context(retrieved_chunks)
 
 #     if len(context) > MAX_CONTEXT_CHARS:
 #         context = context[:MAX_CONTEXT_CHARS]
 
-#     if len(context) + len(query) > MAX_PROMPT_TOTAL_CHARS:
-#         context = context[:MAX_PROMPT_TOTAL_CHARS - len(query)]
+#     total_prompt_size = len(context) + len(query)
+
+#     if total_prompt_size > MAX_PROMPT_TOTAL_CHARS:
+
+#         allowed_context_size = MAX_PROMPT_TOTAL_CHARS - len(query)
+
+#         if allowed_context_size > 0:
+#             context = context[:allowed_context_size]
+#         else:
+#             context = ""
+
+#     # ------------------------------------------------------------
+#     # LLM Answer
+#     # ------------------------------------------------------------
 
 #     answer = generate_answer_from_llm(query, context)
+
+#     # ------------------------------------------------------------
+#     # Confidence + Sources
+#     # ------------------------------------------------------------
 
 #     confidence = calculate_confidence(retrieved_chunks)
 
@@ -238,14 +270,23 @@
 
 #     top_contexts = rank_contexts(retrieved_chunks)
 
+#     # ------------------------------------------------------------
+#     # Evaluation
+#     # ------------------------------------------------------------
+
 #     evaluation = None
 
 #     if ENABLE_EVALUATION:
+
 #         evaluation = evaluate_answer_quality(
 #             retrieved_chunks,
 #             answer,
 #             confidence
 #         )
+
+#     # ------------------------------------------------------------
+#     # Logging
+#     # ------------------------------------------------------------
 
 #     latency = round((time.time() - start_time) * 1000, 2)
 
@@ -254,6 +295,10 @@
 #         "department": department,
 #         "latency_ms": latency
 #     })
+
+#     # ------------------------------------------------------------
+#     # Final Response
+#     # ------------------------------------------------------------
 
 #     return {
 #         "question": query,
@@ -265,26 +310,26 @@
 #         "context_used": retrieved_chunks,
 #         "session_id": session_id,
 #         "tool_used": None,
-#         "evaluation_enabled": ENABLE_EVALUATION
+#         "evaluation_enabled": True if ENABLE_EVALUATION else False
 #     }
 
 
 
-
 import time
+import math
 from typing import List, Dict
 
 from openai import OpenAI
 
 from app.core.vector_store import search_text
 from app.core.logger import logger
+from app.core.embeddings import generate_embedding
 from app.config import (
     OPENAI_API_KEY,
     LLM_MODEL,
     MAX_CONTEXT_CHARS,
     MAX_PROMPT_TOTAL_CHARS,
-    ENABLE_EVALUATION,
-    HALLUCINATION_STRICT_MODE
+    ENABLE_EVALUATION
 )
 
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -373,6 +418,55 @@ def rank_contexts(chunks: List[str]) -> List[Dict]:
 
 
 # ============================================================
+# Cosine Similarity
+# ============================================================
+
+def cosine_similarity(vec1, vec2):
+
+    dot_product = sum(a*b for a, b in zip(vec1, vec2))
+
+    norm_a = math.sqrt(sum(a*a for a in vec1))
+    norm_b = math.sqrt(sum(b*b for b in vec2))
+
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+
+    return dot_product / (norm_a * norm_b)
+
+
+# ============================================================
+# Grounding Check (NEW FEATURE)
+# ============================================================
+
+def calculate_grounding_score(answer: str, context_chunks: List[str]) -> float:
+
+    try:
+
+        answer_embedding = generate_embedding(answer)
+
+        scores = []
+
+        for chunk in context_chunks:
+
+            context_embedding = generate_embedding(chunk)
+
+            similarity = cosine_similarity(answer_embedding, context_embedding)
+
+            scores.append(similarity)
+
+        if not scores:
+            return 0.0
+
+        return max(scores)
+
+    except Exception as e:
+
+        logger.error(f"Grounding calculation failed: {str(e)}")
+
+        return 0.0
+
+
+# ============================================================
 # Answer Evaluation
 # ============================================================
 
@@ -433,6 +527,7 @@ Answer:
     except Exception as e:
 
         logger.error(f"LLM failure: {str(e)}")
+
         return "The system is temporarily unavailable. Please try again later."
 
 
@@ -444,53 +539,24 @@ def generate_rag_answer(query: str, session_id: str, department: str):
 
     start_time = time.time()
 
-    # ------------------------------------------------------------
-    # Prompt Injection Guard
-    # ------------------------------------------------------------
-
     if detect_prompt_injection(query):
 
         return {
             "question": query,
             "answer": "Potential prompt injection detected. Request rejected.",
             "confidence": 0,
+            "grounded": False,
+            "grounding_score": 0.0,
             "sources": [],
             "top_contexts": [],
             "evaluation": None,
             "context_used": [],
             "session_id": session_id,
             "tool_used": None,
-            "evaluation_enabled": True if ENABLE_EVALUATION else False
+            "evaluation_enabled": ENABLE_EVALUATION
         }
 
-    # ------------------------------------------------------------
-    # Vector Retrieval
-    # ------------------------------------------------------------
-
-    try:
-
-        retrieved_chunks = search_text(query, department=department)
-
-    except Exception as e:
-
-        logger.error(f"Vector search failed: {str(e)}")
-
-        return {
-            "question": query,
-            "answer": "Knowledge retrieval system unavailable.",
-            "confidence": 0,
-            "sources": [],
-            "top_contexts": [],
-            "evaluation": None,
-            "context_used": [],
-            "session_id": session_id,
-            "tool_used": None,
-            "evaluation_enabled": True if ENABLE_EVALUATION else False
-        }
-
-    # ------------------------------------------------------------
-    # Empty Context Guard
-    # ------------------------------------------------------------
+    retrieved_chunks = search_text(query, department=department)
 
     if not retrieved_chunks:
 
@@ -498,44 +564,23 @@ def generate_rag_answer(query: str, session_id: str, department: str):
             "question": query,
             "answer": "No relevant documents found for this department.",
             "confidence": 0,
+            "grounded": False,
+            "grounding_score": 0.0,
             "sources": [],
             "top_contexts": [],
             "evaluation": None,
             "context_used": [],
             "session_id": session_id,
             "tool_used": None,
-            "evaluation_enabled": True if ENABLE_EVALUATION else False
+            "evaluation_enabled": ENABLE_EVALUATION
         }
-
-    # ------------------------------------------------------------
-    # Build Context
-    # ------------------------------------------------------------
 
     context = build_context(retrieved_chunks)
 
     if len(context) > MAX_CONTEXT_CHARS:
         context = context[:MAX_CONTEXT_CHARS]
 
-    total_prompt_size = len(context) + len(query)
-
-    if total_prompt_size > MAX_PROMPT_TOTAL_CHARS:
-
-        allowed_context_size = MAX_PROMPT_TOTAL_CHARS - len(query)
-
-        if allowed_context_size > 0:
-            context = context[:allowed_context_size]
-        else:
-            context = ""
-
-    # ------------------------------------------------------------
-    # LLM Answer
-    # ------------------------------------------------------------
-
     answer = generate_answer_from_llm(query, context)
-
-    # ------------------------------------------------------------
-    # Confidence + Sources
-    # ------------------------------------------------------------
 
     confidence = calculate_confidence(retrieved_chunks)
 
@@ -543,23 +588,18 @@ def generate_rag_answer(query: str, session_id: str, department: str):
 
     top_contexts = rank_contexts(retrieved_chunks)
 
-    # ------------------------------------------------------------
-    # Evaluation
-    # ------------------------------------------------------------
+    grounding_score = calculate_grounding_score(answer, retrieved_chunks)
+
+    grounded = grounding_score > 0.75
 
     evaluation = None
 
     if ENABLE_EVALUATION:
-
         evaluation = evaluate_answer_quality(
             retrieved_chunks,
             answer,
             confidence
         )
-
-    # ------------------------------------------------------------
-    # Logging
-    # ------------------------------------------------------------
 
     latency = round((time.time() - start_time) * 1000, 2)
 
@@ -569,19 +609,17 @@ def generate_rag_answer(query: str, session_id: str, department: str):
         "latency_ms": latency
     })
 
-    # ------------------------------------------------------------
-    # Final Response
-    # ------------------------------------------------------------
-
     return {
         "question": query,
         "answer": answer,
         "confidence": confidence,
+        "grounded": grounded,
+        "grounding_score": grounding_score,
         "sources": sources,
         "top_contexts": top_contexts,
         "evaluation": evaluation,
         "context_used": retrieved_chunks,
         "session_id": session_id,
         "tool_used": None,
-        "evaluation_enabled": True if ENABLE_EVALUATION else False
+        "evaluation_enabled": ENABLE_EVALUATION
     }

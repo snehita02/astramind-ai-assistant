@@ -1,5 +1,5 @@
 # from pydantic import BaseModel
-# from typing import List, Optional
+# from typing import List, Optional, Dict
 
 
 # class StandardResponse(BaseModel):
@@ -15,7 +15,10 @@
 #     answer: str
 
 #     confidence: float
+
 #     sources: List[str]
+
+#     top_contexts: List[Dict]
 
 #     evaluation: Optional[str] = None
 
@@ -44,6 +47,9 @@ class RAGResponse(BaseModel):
     answer: str
 
     confidence: float
+
+    grounded: bool
+    grounding_score: float
 
     sources: List[str]
 
