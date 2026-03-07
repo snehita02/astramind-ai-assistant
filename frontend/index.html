@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!-- <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -43,6 +43,63 @@ placeholder="Ask AstraMind something..."
 />
 
 <button onclick="sendMessage()">Send</button>
+
+</div>
+
+</div>
+
+<script src="script.js"></script>
+
+</body>
+</html> -->
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AstraMind</title>
+<link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<div class="container">
+
+<header>
+<h1>AstraMind</h1>
+<p>Enterprise Knowledge Assistant</p>
+</header>
+
+<div class="controls">
+
+<label>Department</label>
+
+<select id="department">
+<option value="general">General</option>
+<option value="engineering">Engineering</option>
+<option value="finance">Finance</option>
+<option value="hr">HR</option>
+<option value="legal">Legal</option>
+<option value="research">Research</option>
+</select>
+
+</div>
+
+<div id="chat" class="chat"></div>
+
+<div class="input-bar">
+
+<input
+id="query"
+type="text"
+placeholder="Ask AstraMind something..."
+>
+
+<button onclick="ask()">Ask</button>
 
 </div>
 
