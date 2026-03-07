@@ -296,61 +296,57 @@ Answer:
         return "The system is temporarily unavailable."
 
 
+def build_error_response(query, session_id, message):
+
+    return {
+        "question": query,
+        "answer": message,
+        "confidence": 0,
+        "grounded": False,
+        "sources": [],
+        "evaluation": None,
+        "context_used": [],
+        "session_id": session_id,
+        "tool_used": None,
+        "evaluation_enabled": ENABLE_EVALUATION,
+        "top_contexts": []
+    }
+
+
 def generate_rag_answer(query: str, session_id: str, department: str):
 
     start_time = time.time()
 
     if detect_prompt_injection(query):
-
-        return {
-            "question": query,
-            "answer": "Potential prompt injection detected.",
-            "confidence": 0,
-            "grounded": False,
-            "sources": [],
-            "evaluation": None,
-            "context_used": [],
-            "session_id": session_id
-        }
+        return build_error_response(
+            query,
+            session_id,
+            "Potential prompt injection detected."
+        )
 
     history = memory.get_history(session_id)
 
     try:
-
         retrieved_chunks = search_text(query, department=department)
 
     except Exception as e:
 
         logger.error(f"Vector search failed: {str(e)}")
 
-        return {
-            "question": query,
-            "answer": "Knowledge retrieval system unavailable.",
-            "confidence": 0,
-            "grounded": False,
-            "sources": [],
-            "evaluation": None,
-            "context_used": [],
-            "session_id": session_id
-        }
+        return build_error_response(
+            query,
+            session_id,
+            "Knowledge retrieval system unavailable."
+        )
 
     if not retrieved_chunks:
 
-        return {
-            "question": query,
-            "answer": "I could not find information about this in the knowledge base.",
-            "confidence": 0,
-            "grounded": False,
-            "sources": [],
-            "evaluation": None,
-            "context_used": [],
-            "session_id": session_id
-        }
+        return build_error_response(
+            query,
+            session_id,
+            "I could not find information about this in the knowledge base."
+        )
 
-    # texts = [chunk["text"] for chunk in retrieved_chunks]
-
-    # sources = list({chunk["source"] for chunk in retrieved_chunks})[:3]
-    # Handle both string chunks and dictionary chunks
     texts = []
     sources = []
 
@@ -360,7 +356,6 @@ def generate_rag_answer(query: str, session_id: str, department: str):
             texts.append(chunk.get("text", ""))
             if "source" in chunk:
                 sources.append(chunk["source"])
-
         else:
             texts.append(chunk)
 
