@@ -1,144 +1,272 @@
-// const API_URL = "https://astramind-api.onrender.com/api/v1/ask";
+// const API="https://astramind-api.onrender.com/api/v1/ask"
 
-// function appendMessage(text, type) {
+// function addUserMessage(text){
 
-// const chat = document.getElementById("chat-container");
+// const chat=document.getElementById("chat")
 
-// const message = document.createElement("div");
+// chat.innerHTML+=`
 
-// message.className = "message " + type;
+// <div class="message user">
 
-// message.innerHTML = text;
+// <div class="bubble">
 
-// chat.appendChild(message);
+// ${text}
 
-// chat.scrollTop = chat.scrollHeight;
+// </div>
+
+// </div>
+
+// `
+
+// chat.scrollTop=chat.scrollHeight
 
 // }
 
-// async function sendMessage() {
 
-// const input = document.getElementById("user-input");
-// const department = document.getElementById("department").value;
+// function addAIMessage(data){
 
-// const query = input.value;
+// const chat=document.getElementById("chat")
 
-// if (!query) return;
+// chat.innerHTML+=`
 
-// appendMessage("You: " + query, "user");
+// <div class="message ai">
 
-// input.value = "";
+// <div class="bubble">
 
-// const url = `${API_URL}?query=${encodeURIComponent(query)}&department=${department}&session_id=web-session`;
+// <b>AstraMind</b>
 
-// try {
-
-// const response = await fetch(url);
-
-// const data = await response.json();
-
-// const answerBlock = `
-// <b>AstraMind:</b> ${data.answer}
+// <p>${data.answer}</p>
 
 // <div class="meta">
-// Confidence: ${data.confidence}
-// <br>
-// Grounded: ${data.grounded}
-// <br>
+
+// Confidence: ${data.confidence}<br>
+
+// Grounded: ${data.grounded}<br>
+
 // Evaluation: ${data.evaluation}
+
 // </div>
-// `;
 
-// appendMessage(answerBlock, "ai");
+// </div>
 
-// } catch (error) {
+// </div>
 
-// appendMessage("Error connecting to backend.", "ai");
+// `
+
+// chat.scrollTop=chat.scrollHeight
+
+// }
+
+
+// async function ask(){
+
+// const query=document.getElementById("query").value
+
+// if(!query) return
+
+// const department=document.getElementById("department").value
+
+// addUserMessage(query)
+
+// document.getElementById("query").value=""
+
+// try{
+
+// const res=await fetch(
+// `${API}?query=${encodeURIComponent(query)}&department=${department}&session_id=web-session`
+// )
+
+// const data=await res.json()
+
+// addAIMessage(data)
+
+// }catch(e){
+
+// addAIMessage({
+// answer:"Could not connect to backend.",
+// confidence:"-",
+// grounded:"-",
+// evaluation:"-"
+// })
 
 // }
 
 // }
+
+
+// document.getElementById("query").addEventListener("keypress",function(event){
+
+// if(event.key==="Enter"){
+
+// ask()
+
+// }
+
+// })
+
+
 
 
 const API="https://astramind-api.onrender.com/api/v1/ask"
 
-function addUserMessage(text){
+let currentChat=[]
 
-const chat=document.getElementById("chat")
+function renderHistory(){
 
-chat.innerHTML+=`
-<div class="message user">
-<b>You:</b> ${text}
-</div>
-`
+const history=JSON.parse(localStorage.getItem("astramind-history"))||[]
 
-chat.scrollTop=chat.scrollHeight
+const container=document.getElementById("chat-history")
+
+container.innerHTML=""
+
+history.forEach((chat,index)=>{
+
+const item=document.createElement("div")
+
+item.innerText=chat.title
+
+item.onclick=()=>loadChat(index)
+
+container.appendChild(item)
+
+})
 
 }
 
-function addAIMessage(data){
+function saveChat(title){
 
-const chat=document.getElementById("chat")
+let history=JSON.parse(localStorage.getItem("astramind-history"))||[]
 
-chat.innerHTML+=`
-<div class="message">
+history.push({title:title,messages:currentChat})
 
+localStorage.setItem("astramind-history",JSON.stringify(history))
+
+renderHistory()
+
+}
+
+function loadChat(index){
+
+const history=JSON.parse(localStorage.getItem("astramind-history"))
+
+currentChat=history[index].messages
+
+renderConversation()
+
+}
+
+function newChat(){
+
+currentChat=[]
+
+document.getElementById("conversation").innerHTML=""
+
+}
+
+function renderConversation(){
+
+const conv=document.getElementById("conversation")
+
+conv.innerHTML=""
+
+currentChat.forEach(m=>{
+
+if(m.type==="question"){
+
+conv.innerHTML+=`
+<div class="question">
+<b>You:</b> ${m.text}
+</div>
+`
+
+}
+
+if(m.type==="answer"){
+
+conv.innerHTML+=`
 <div class="answer-card">
 
 <b>AstraMind</b>
 
-<p>${data.answer}</p>
+<p>${m.text}</p>
 
 <div class="meta">
 
-Confidence: ${data.confidence}<br>
-
-Grounded: ${data.grounded}<br>
-
-Evaluation: ${data.evaluation}
-
-</div>
+Confidence: ${m.confidence}<br>
+Grounded: ${m.grounded}<br>
+Evaluation: ${m.evaluation}
 
 </div>
 
 </div>
 `
 
-chat.scrollTop=chat.scrollHeight
+}
+
+})
+
+conv.scrollTop=conv.scrollHeight
 
 }
 
 async function ask(){
 
-const query=document.getElementById("query").value
+const input=document.getElementById("question")
 
-if(!query) return
+const question=input.value
 
-const department=document.getElementById("department").value
+if(!question) return
 
-addUserMessage(query)
+const dept=document.getElementById("department").value
 
-document.getElementById("query").value=""
+currentChat.push({type:"question",text:question})
+
+renderConversation()
+
+input.value=""
 
 try{
 
 const res=await fetch(
-`${API}?query=${encodeURIComponent(query)}&department=${department}&session_id=web-session`
+`${API}?query=${encodeURIComponent(question)}&department=${dept}&session_id=web-session`
 )
 
 const data=await res.json()
 
-addAIMessage(data)
+currentChat.push({
+type:"answer",
+text:data.answer,
+confidence:data.confidence,
+grounded:data.grounded,
+evaluation:data.evaluation
+})
+
+renderConversation()
+
+saveChat(question.substring(0,30))
 
 }catch(e){
 
-addAIMessage({
-answer:"Could not connect to backend.",
+currentChat.push({
+type:"answer",
+text:"Error connecting to backend.",
 confidence:"-",
 grounded:"-",
 evaluation:"-"
 })
 
+renderConversation()
+
 }
 
 }
+
+document.getElementById("question").addEventListener("keypress",function(e){
+
+if(e.key==="Enter"){
+ask()
+}
+
+})
+
+renderHistory()

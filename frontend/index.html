@@ -1,80 +1,22 @@
 <!-- <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>AstraMind AI Assistant</title>
 
-<link rel="stylesheet" href="style.css">
-
-</head>
-
-<body>
-
-<div class="app-container">
-
-<header>
-<h1>AstraMind</h1>
-<p>Enterprise Knowledge Assistant</p>
-</header>
-
-<div class="department-bar">
-
-<label>Select Department:</label>
-
-<select id="department">
-<option value="general">General</option>
-<option value="engineering">Engineering</option>
-<option value="finance">Finance</option>
-<option value="hr">HR</option>
-<option value="legal">Legal</option>
-<option value="research">Research</option>
-</select>
-
-</div>
-
-<div id="chat-container" class="chat-container"></div>
-
-<div class="input-area">
-
-<input
-type="text"
-id="user-input"
-placeholder="Ask AstraMind something..."
-/>
-
-<button onclick="sendMessage()">Send</button>
-
-</div>
-
-</div>
-
-<script src="script.js"></script>
-
-</body>
-</html> -->
-
-
-
-
-
-<!DOCTYPE html>
-<html lang="en">
-<head>
 <meta charset="UTF-8">
 <title>AstraMind</title>
+
 <link rel="stylesheet" href="style.css">
+
 </head>
 
 <body>
 
-<div class="container">
+<div class="header">
 
-<header>
 <h1>AstraMind</h1>
 <p>Enterprise Knowledge Assistant</p>
-</header>
 
-<div class="controls">
+<div class="department">
 
 <label>Department</label>
 
@@ -89,9 +31,13 @@ placeholder="Ask AstraMind something..."
 
 </div>
 
+</div>
+
+
 <div id="chat" class="chat"></div>
 
-<div class="input-bar">
+
+<div class="input-area">
 
 <input
 id="query"
@@ -99,7 +45,77 @@ type="text"
 placeholder="Ask AstraMind something..."
 >
 
+<button onclick="ask()">Send</button>
+
+</div>
+
+
+<script src="script.js"></script>
+
+</body>
+</html>
+ -->
+
+ <!DOCTYPE html>
+<html lang="en">
+
+<head>
+<meta charset="UTF-8">
+<title>AstraMind</title>
+<link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<div class="app">
+
+<!-- Sidebar -->
+
+<div class="sidebar">
+
+<h2>AstraMind</h2>
+
+<button onclick="newChat()" class="new-chat">
++ New Chat
+</button>
+
+<div id="chat-history"></div>
+
+</div>
+
+<!-- Main Content -->
+
+<div class="main">
+
+<header>
+
+<h1>AstraMind</h1>
+<p>Enterprise Knowledge Assistant</p>
+
+<select id="department">
+<option value="general">General</option>
+<option value="engineering">Engineering</option>
+<option value="finance">Finance</option>
+<option value="hr">HR</option>
+<option value="legal">Legal</option>
+<option value="research">Research</option>
+</select>
+
+</header>
+
+<div id="conversation" class="conversation"></div>
+
+<div class="input-bar">
+
+<input
+id="question"
+type="text"
+placeholder="Ask AstraMind something..."
+>
+
 <button onclick="ask()">Ask</button>
+
+</div>
 
 </div>
 
