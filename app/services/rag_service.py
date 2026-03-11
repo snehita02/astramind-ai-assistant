@@ -12,7 +12,6 @@
 #     LLM_MODEL,
 #     MAX_CONTEXT_CHARS,
 #     MAX_PROMPT_TOTAL_CHARS,
-#     ENABLE_EVALUATION
 # )
 
 # client = OpenAI(api_key=OPENAI_API_KEY)
@@ -118,13 +117,31 @@
 #     return response.choices[0].message.content.strip()
 
 
+# def normalize_answer(text: str):
+
+#     return (
+#         text.lower()
+#         .replace("’", "'")
+#         .replace("`", "'")
+#         .strip()
+#     )
+
+
+# def is_unknown_answer(answer: str):
+
+#     normalized = normalize_answer(answer)
+
+#     return (
+#         "i don't know" in normalized
+#         or "cannot determine" in normalized
+#         or "not enough information" in normalized
+#         or normalized == "unknown"
+#     )
+
+
 # def generate_rag_answer(query: str, session_id: str, department: str):
 
 #     start_time = time.time()
-
-#     # ----------------------------
-#     # Prompt Injection Protection
-#     # ----------------------------
 
 #     if detect_prompt_injection(query):
 
@@ -140,10 +157,6 @@
 #         }
 
 #     history = memory.get_history(session_id)
-
-#     # ----------------------------
-#     # Retrieve Knowledge
-#     # ----------------------------
 
 #     try:
 
@@ -177,10 +190,6 @@
 #             "session_id": session_id
 #         }
 
-#     # ----------------------------
-#     # Rerank Retrieval Results
-#     # ----------------------------
-
 #     reranked_chunks = rerank_chunks(query, retrieved_chunks, top_k=5)
 
 #     texts = [chunk["text"] for chunk in reranked_chunks]
@@ -189,10 +198,6 @@
 
 #     context = build_context(texts)
 
-#     # ----------------------------
-#     # Context Safety Limits
-#     # ----------------------------
-
 #     if len(context) > MAX_CONTEXT_CHARS:
 #         context = context[:MAX_CONTEXT_CHARS]
 
@@ -200,10 +205,6 @@
 #         context = context[:MAX_PROMPT_TOTAL_CHARS - len(query)]
 
 #     confidence = calculate_confidence(texts)
-
-#     # ----------------------------
-#     # Weak Retrieval Guard
-#     # ----------------------------
 
 #     if confidence < 0.3:
 
@@ -218,37 +219,7 @@
 #             "session_id": session_id
 #         }
 
-#     # ----------------------------
-#     # Generate Answer
-#     # ----------------------------
-
 #     answer = generate_answer_from_llm(query, context, history)
-
-#     normalized_answer = answer.lower()
-
-#     # ----------------------------
-#     # Knowledge Boundary Safeguard
-#     # ----------------------------
-
-#     if (
-#         "i don't know" in normalized_answer
-#         or "cannot determine" in normalized_answer
-#         or "not enough information" in normalized_answer
-#     ):
-
-#         confidence = 0.2
-#         grounded = False
-#         sources = []
-#         evaluation = "Knowledge boundary triggered"
-
-#     else:
-
-#         grounded = True
-#         evaluation = "Answer generated from knowledge base"
-
-#     # ----------------------------
-#     # Store Conversation Memory
-#     # ----------------------------
 
 #     memory.add_message(session_id, "user", query)
 #     memory.add_message(session_id, "assistant", answer)
@@ -261,17 +232,30 @@
 #         "latency_ms": latency
 #     })
 
-#     # ----------------------------
-#     # Final Response
-#     # ----------------------------
+#     # ---------------------------------------------------------
+#     # FINAL SAFEGUARD (CANNOT BE OVERRIDDEN)
+#     # ---------------------------------------------------------
+
+#     if is_unknown_answer(answer):
+
+#         return {
+#             "question": query,
+#             "answer": "I don't know.",
+#             "confidence": 0.2,
+#             "grounded": False,
+#             "sources": [],
+#             "evaluation": "Knowledge boundary triggered",
+#             "context_used": [],
+#             "session_id": session_id
+#         }
 
 #     return {
 #         "question": query,
 #         "answer": answer,
 #         "confidence": confidence,
-#         "grounded": grounded,
+#         "grounded": True,
 #         "sources": sources,
-#         "evaluation": evaluation,
+#         "evaluation": "Answer generated from knowledge base",
 #         "context_used": texts,
 #         "session_id": session_id
 #     }
@@ -279,8 +263,10 @@
 
 
 
+
+
 import time
-from typing import List
+from typing import List, Union
 
 from openai import OpenAI
 
@@ -420,7 +406,7 @@ def is_unknown_answer(answer: str):
     )
 
 
-def generate_rag_answer(query: str, session_id: str, department: str):
+def generate_rag_answer(query: str, session_id: str, department: Union[str, List[str]]):
 
     start_time = time.time()
 
@@ -441,7 +427,19 @@ def generate_rag_answer(query: str, session_id: str, department: str):
 
     try:
 
-        retrieved_chunks = search_text(query, department=department, limit=20)
+        if isinstance(department, list):
+
+            retrieved_chunks = []
+
+            for dept in department:
+
+                chunks = search_text(query, department=dept, limit=10)
+
+                retrieved_chunks.extend(chunks)
+
+        else:
+
+            retrieved_chunks = search_text(query, department=department, limit=20)
 
     except Exception as e:
 
@@ -462,7 +460,7 @@ def generate_rag_answer(query: str, session_id: str, department: str):
 
         return {
             "question": query,
-            "answer": f"I could not find this information in the {department} knowledge base.",
+            "answer": "I could not find this information in your accessible knowledge base.",
             "confidence": 0,
             "grounded": False,
             "sources": [],
@@ -491,7 +489,7 @@ def generate_rag_answer(query: str, session_id: str, department: str):
 
         return {
             "question": query,
-            "answer": f"I could not find reliable information about this in the {department} knowledge base.",
+            "answer": "I could not find reliable information in your accessible knowledge base.",
             "confidence": confidence,
             "grounded": False,
             "sources": [],
@@ -509,13 +507,9 @@ def generate_rag_answer(query: str, session_id: str, department: str):
 
     logger.info({
         "event": "rag_query",
-        "department": department,
+        "departments": department,
         "latency_ms": latency
     })
-
-    # ---------------------------------------------------------
-    # FINAL SAFEGUARD (CANNOT BE OVERRIDDEN)
-    # ---------------------------------------------------------
 
     if is_unknown_answer(answer):
 

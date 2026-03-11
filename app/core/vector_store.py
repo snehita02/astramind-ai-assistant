@@ -13,15 +13,33 @@
 # from app.core.logger import logger
 # from app.config import QDRANT_HOST, QDRANT_PORT
 
+
 # QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 
-# client = QdrantClient(
-#     url=f"https://{QDRANT_HOST}",
-#     api_key=QDRANT_API_KEY
-# )
+# # --------------------------------------------------
+# # Qdrant Connection
+# # --------------------------------------------------
+
+# if QDRANT_API_KEY:
+#     # Cloud connection
+#     client = QdrantClient(
+#         url=f"https://{QDRANT_HOST}",
+#         api_key=QDRANT_API_KEY
+#     )
+# else:
+#     # Local connection
+#     client = QdrantClient(
+#         host=QDRANT_HOST,
+#         port=QDRANT_PORT
+#     )
+
 
 # COLLECTION_NAME = "astramind_collection"
 
+
+# # --------------------------------------------------
+# # Create Collection
+# # --------------------------------------------------
 
 # def create_collection():
 
@@ -56,6 +74,10 @@
 #         raise
 
 
+# # --------------------------------------------------
+# # Add Text
+# # --------------------------------------------------
+
 # def add_text(text: str, doc_id: str, metadata: dict = None):
 
 #     try:
@@ -80,6 +102,10 @@
 #         logger.error(f"Vector store upsert failed: {str(e)}")
 #         raise
 
+
+# # --------------------------------------------------
+# # Search
+# # --------------------------------------------------
 
 # def search_text(query: str, department: str = None, limit: int = 5):
 
@@ -133,7 +159,12 @@
 #         raise
 
 
+
+
+
 import os
+from typing import Union, List
+
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     VectorParams,
@@ -141,7 +172,7 @@ from qdrant_client.models import (
     PointStruct,
     Filter,
     FieldCondition,
-    MatchValue
+    MatchValue,
 )
 
 from app.core.embeddings import generate_embedding
@@ -151,18 +182,17 @@ from app.config import QDRANT_HOST, QDRANT_PORT
 
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 
+
 # --------------------------------------------------
 # Qdrant Connection
 # --------------------------------------------------
 
 if QDRANT_API_KEY:
-    # Cloud connection
     client = QdrantClient(
         url=f"https://{QDRANT_HOST}",
         api_key=QDRANT_API_KEY
     )
 else:
-    # Local connection
     client = QdrantClient(
         host=QDRANT_HOST,
         port=QDRANT_PORT
@@ -239,10 +269,14 @@ def add_text(text: str, doc_id: str, metadata: dict = None):
 
 
 # --------------------------------------------------
-# Search
+# Search (UPDATED FOR MULTI-DEPARTMENT PERMISSIONS)
 # --------------------------------------------------
 
-def search_text(query: str, department: str = None, limit: int = 5):
+def search_text(
+    query: str,
+    department: Union[str, List[str]] = None,
+    limit: int = 5
+):
 
     try:
 
@@ -250,13 +284,34 @@ def search_text(query: str, department: str = None, limit: int = 5):
 
         search_filter = None
 
-        if department:
+        # --------------------------------------------------
+        # SINGLE DEPARTMENT
+        # --------------------------------------------------
+
+        if isinstance(department, str):
+
             search_filter = Filter(
                 must=[
                     FieldCondition(
                         key="department",
                         match=MatchValue(value=department)
                     )
+                ]
+            )
+
+        # --------------------------------------------------
+        # MULTIPLE DEPARTMENTS (STEP 35)
+        # --------------------------------------------------
+
+        elif isinstance(department, list) and department:
+
+            search_filter = Filter(
+                should=[
+                    FieldCondition(
+                        key="department",
+                        match=MatchValue(value=dept)
+                    )
+                    for dept in department
                 ]
             )
 
