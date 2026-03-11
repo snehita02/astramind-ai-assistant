@@ -1,8 +1,11 @@
 fastapi
 uvicorn
 openai
-llama-index
 qdrant-client
+pypdf
+beautifulsoup4
+requests
 python-dotenv
-ragas
-GitPython
+pydantic
+pydantic-settings
+gitpython
