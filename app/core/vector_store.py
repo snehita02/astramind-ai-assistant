@@ -180,10 +180,14 @@ from app.config import QDRANT_HOST, QDRANT_PORT
 
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 
+# client = QdrantClient(
+#     host=QDRANT_HOST,
+#     port=QDRANT_PORT,
+#     api_key=QDRANT_API_KEY
+# )
 client = QdrantClient(
-    host=QDRANT_HOST,
-    port=QDRANT_PORT,
-    api_key=QDRANT_API_KEY
+    url=f"https://{QDRANT_HOST}",
+    api_key=os.getenv("QDRANT_API_KEY")
 )
 
 COLLECTION_NAME = "astramind_collection"
