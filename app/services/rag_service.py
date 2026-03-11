@@ -410,5 +410,11 @@ def generate_rag_answer(query: str, session_id: str, department: str):
         "sources": sources,
         "evaluation": evaluation,
         "context_used": texts,
-        "session_id": session_id
+        "session_id": session_id,
+        "tool_used": None,
+        "evaluation_enabled": ENABLE_EVALUATION,
+        "top_contexts": [
+            {"rank": i + 1, "text": t}
+            for i, t in enumerate(texts[:3])
+        ]
     }
