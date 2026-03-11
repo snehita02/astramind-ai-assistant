@@ -30,32 +30,31 @@
 
 
 
-# =====================================================
-# Group → Department Mapping
-# =====================================================
+
+
+
+
+
+
+
+
 
 GROUP_DEPARTMENT_MAP = {
-    123456: ["general"],
-    123457: ["hr"],
-    123458: ["finance"],
-    123459: ["engineering"],
-    123460: ["research"]
+    123456: "general",
+    123457: "engineering",
+    123458: "finance",
+    123459: "hr",
+    123460: "research"
 }
 
 
-# =====================================================
-# Resolve Allowed Departments
-# =====================================================
-
 def resolve_departments(group_ids):
 
-    departments = set()
+    departments = []
 
     for gid in group_ids:
 
         if gid in GROUP_DEPARTMENT_MAP:
+            departments.append(GROUP_DEPARTMENT_MAP[gid])
 
-            for dept in GROUP_DEPARTMENT_MAP[gid]:
-                departments.add(dept)
-
-    return list(departments)
+    return departments

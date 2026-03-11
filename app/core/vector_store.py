@@ -1,4 +1,6 @@
 # import os
+# from typing import Union, List
+
 # from qdrant_client import QdrantClient
 # from qdrant_client.models import (
 #     VectorParams,
@@ -6,7 +8,7 @@
 #     PointStruct,
 #     Filter,
 #     FieldCondition,
-#     MatchValue
+#     MatchValue,
 # )
 
 # from app.core.embeddings import generate_embedding
@@ -16,18 +18,17 @@
 
 # QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 
+
 # # --------------------------------------------------
 # # Qdrant Connection
 # # --------------------------------------------------
 
 # if QDRANT_API_KEY:
-#     # Cloud connection
 #     client = QdrantClient(
 #         url=f"https://{QDRANT_HOST}",
 #         api_key=QDRANT_API_KEY
 #     )
 # else:
-#     # Local connection
 #     client = QdrantClient(
 #         host=QDRANT_HOST,
 #         port=QDRANT_PORT
@@ -104,10 +105,14 @@
 
 
 # # --------------------------------------------------
-# # Search
+# # Search (UPDATED FOR MULTI-DEPARTMENT PERMISSIONS)
 # # --------------------------------------------------
 
-# def search_text(query: str, department: str = None, limit: int = 5):
+# def search_text(
+#     query: str,
+#     department: Union[str, List[str]] = None,
+#     limit: int = 5
+# ):
 
 #     try:
 
@@ -115,13 +120,34 @@
 
 #         search_filter = None
 
-#         if department:
+#         # --------------------------------------------------
+#         # SINGLE DEPARTMENT
+#         # --------------------------------------------------
+
+#         if isinstance(department, str):
+
 #             search_filter = Filter(
 #                 must=[
 #                     FieldCondition(
 #                         key="department",
 #                         match=MatchValue(value=department)
 #                     )
+#                 ]
+#             )
+
+#         # --------------------------------------------------
+#         # MULTIPLE DEPARTMENTS (STEP 35)
+#         # --------------------------------------------------
+
+#         elif isinstance(department, list) and department:
+
+#             search_filter = Filter(
+#                 should=[
+#                     FieldCondition(
+#                         key="department",
+#                         match=MatchValue(value=dept)
+#                     )
+#                     for dept in department
 #                 ]
 #             )
 
@@ -157,6 +183,19 @@
 
 #         logger.error(f"Vector search failed: {str(e)}")
 #         raise
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

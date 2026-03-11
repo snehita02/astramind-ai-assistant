@@ -3,6 +3,8 @@
 # from datetime import datetime
 # from pathlib import Path
 
+# from app.auth.password_utils import hash_password
+
 # DB_PATH = Path("astramind_users.db")
 
 
@@ -27,6 +29,30 @@
 #     """)
 
 #     conn.commit()
+
+#     # 🔑 Create default admin if not exists
+#     cursor.execute("SELECT * FROM users WHERE user_id='admin'")
+#     admin = cursor.fetchone()
+
+#     if not admin:
+
+#         password_hash = hash_password("admin123")
+
+#         cursor.execute(
+#             """
+#             INSERT INTO users (user_id, password_hash, group_ids, created_at)
+#             VALUES (?, ?, ?, ?)
+#             """,
+#             (
+#                 "admin",
+#                 password_hash,
+#                 json.dumps([123456, 123457, 123458, 123459, 123460]),
+#                 datetime.utcnow().isoformat()
+#             )
+#         )
+
+#         conn.commit()
+
 #     conn.close()
 
 
@@ -58,11 +84,12 @@
 #     cursor = conn.cursor()
 
 #     cursor.execute(
-#         "SELECT * FROM users WHERE user_id = ?",
+#         "SELECT * FROM users WHERE user_id=?",
 #         (user_id,)
 #     )
 
 #     row = cursor.fetchone()
+
 #     conn.close()
 
 #     if row is None:
@@ -73,6 +100,20 @@
 #         "password_hash": row["password_hash"],
 #         "group_ids": json.loads(row["group_ids"])
 #     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -108,7 +149,7 @@ def initialize_database():
 
     conn.commit()
 
-    # 🔑 Create default admin if not exists
+    # Create default admin if not exists
     cursor.execute("SELECT * FROM users WHERE user_id='admin'")
     admin = cursor.fetchone()
 
@@ -138,6 +179,18 @@ def create_user(user_id: str, password_hash: str, group_ids):
 
     conn = get_connection()
     cursor = conn.cursor()
+
+    # 🔍 Check if user already exists
+    cursor.execute(
+        "SELECT * FROM users WHERE user_id=?",
+        (user_id,)
+    )
+
+    existing_user = cursor.fetchone()
+
+    if existing_user:
+        conn.close()
+        raise ValueError("User already exists")
 
     cursor.execute(
         """

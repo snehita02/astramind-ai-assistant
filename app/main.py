@@ -3,11 +3,14 @@
 # from app.auth.auth_routes import router as auth_router
 # from fastapi.middleware.cors import CORSMiddleware
 
+# from app.database.auth_database import initialize_database
+
 # app = FastAPI(
 #     title="AstraMind Enterprise AI Platform",
 #     description="Enterprise RAG Knowledge Assistant",
 #     version="1.0.0"
 # )
+
 
 # app.add_middleware(
 #     CORSMiddleware,
@@ -17,10 +20,10 @@
 #     allow_headers=["*"],
 # )
 
-# # Main API
-# app.include_router(router)
 
-# # Authentication API
+# initialize_database()
+
+# app.include_router(router)
 # app.include_router(auth_router)
 
 
@@ -36,23 +39,26 @@
 
 
 
+
+
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router as api_router
 from app.auth.auth_routes import router as auth_router
 
+from app.database.auth_database import initialize_database
 
 app = FastAPI(
     title="AstraMind Enterprise AI Platform",
-    description="Multi-source, department-aware enterprise RAG system",
-    version="1.0.0"
+    version="1.0.0",
+    description="Multi-source, department-aware, enterprise RAG system with guardrails and production hardening."
 )
 
-
-# =========================================================
+# --------------------------------------------------
 # CORS
-# =========================================================
+# --------------------------------------------------
 
 app.add_middleware(
     CORSMiddleware,
@@ -62,22 +68,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --------------------------------------------------
+# Initialize database
+# --------------------------------------------------
 
-# =========================================================
-# REGISTER ROUTERS
-# =========================================================
+initialize_database()
 
-# Authentication routes
+# --------------------------------------------------
+# Register routers
+# --------------------------------------------------
+
 app.include_router(auth_router)
-
-# Main API routes
 app.include_router(api_router)
 
-
-# =========================================================
-# ROOT
-# =========================================================
+# --------------------------------------------------
+# Root endpoint
+# --------------------------------------------------
 
 @app.get("/")
 def root():
-    return {"message": "AstraMind API running"}
+    return {
+        "service": "AstraMind Enterprise AI Platform",
+        "status": "running"
+    }
