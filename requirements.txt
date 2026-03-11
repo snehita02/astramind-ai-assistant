@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+openai
+llama-index
+qdrant-client
+python-dotenv
+ragas
+GitPython

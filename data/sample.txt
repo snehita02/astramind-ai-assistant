@@ -1,0 +1,5 @@
+AstraMind is an enterprise AI knowledge copilot.
+It allows organizations to ingest documents and perform semantic search.
+Vector databases store embeddings that represent semantic meaning.
+Retrieval augmented generation improves answer accuracy by grounding responses in stored knowledge.
+This system is scalable and production-ready.
