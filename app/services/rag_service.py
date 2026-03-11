@@ -347,9 +347,24 @@ def generate_rag_answer(query: str, session_id: str, department: str):
             "session_id": session_id
         }
 
-    texts = [chunk["text"] for chunk in retrieved_chunks]
+    # texts = [chunk["text"] for chunk in retrieved_chunks]
 
-    sources = list({chunk["source"] for chunk in retrieved_chunks})[:3]
+    # sources = list({chunk["source"] for chunk in retrieved_chunks})[:3]
+    # Handle both string chunks and dictionary chunks
+    texts = []
+    sources = []
+
+    for chunk in retrieved_chunks:
+
+        if isinstance(chunk, dict):
+            texts.append(chunk.get("text", ""))
+            if "source" in chunk:
+                sources.append(chunk["source"])
+
+        else:
+            texts.append(chunk)
+
+    sources = list(set(sources))[:3]
 
     context = build_context(texts)
 
