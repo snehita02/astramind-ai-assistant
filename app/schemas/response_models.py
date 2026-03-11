@@ -17,6 +17,8 @@
 #     confidence: float
 #     sources: List[str]
 
+#     evaluation: Optional[str] = None
+
 #     context_used: List[str]
 
 #     session_id: str
@@ -25,9 +27,8 @@
 #     evaluation_enabled: bool
 
 
-
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 
 class StandardResponse(BaseModel):
@@ -43,7 +44,10 @@ class RAGResponse(BaseModel):
     answer: str
 
     confidence: float
+
     sources: List[str]
+
+    top_contexts: List[Dict]
 
     evaluation: Optional[str] = None
 
