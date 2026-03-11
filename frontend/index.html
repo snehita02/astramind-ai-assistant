@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AstraMind AI Assistant</title>
+
+<link rel="stylesheet" href="style.css">
+
+</head>
+
+<body>
+
+<div class="app-container">
+
+<header>
+<h1>AstraMind</h1>
+<p>Enterprise Knowledge Assistant</p>
+</header>
+
+<div class="department-bar">
+
+<label>Select Department:</label>
+
+<select id="department">
+<option value="general">General</option>
+<option value="engineering">Engineering</option>
+<option value="finance">Finance</option>
+<option value="hr">HR</option>
+<option value="legal">Legal</option>
+<option value="research">Research</option>
+</select>
+
+</div>
+
+<div id="chat-container" class="chat-container"></div>
+
+<div class="input-area">
+
+<input
+type="text"
+id="user-input"
+placeholder="Ask AstraMind something..."
+/>
+
+<button onclick="sendMessage()">Send</button>
+
+</div>
+
+</div>
+
+<script src="script.js"></script>
+
+</body>
+</html>
