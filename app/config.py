@@ -45,6 +45,20 @@ MAX_PROMPT_TOTAL_CHARS = int(os.getenv("MAX_PROMPT_TOTAL_CHARS", 15000))
 ENABLE_EVALUATION = os.getenv("ENABLE_EVALUATION", "false").lower() == "true"
 HALLUCINATION_STRICT_MODE = os.getenv("HALLUCINATION_STRICT_MODE", "false").lower() == "true"
 
+# ==============================
+# DEPARTMENT CONFIGURATION
+# ==============================
+
+ALLOWED_DEPARTMENTS = [
+    "general",
+    "engineering",
+    "finance",
+    "hr",
+    "legal",
+    "research"
+]
+
+DEFAULT_DEPARTMENT = "general"
 
 # ==============================
 # PRODUCTION SAFETY OVERRIDES
@@ -52,3 +66,5 @@ HALLUCINATION_STRICT_MODE = os.getenv("HALLUCINATION_STRICT_MODE", "false").lowe
 
 if IS_PRODUCTION:
     ENABLE_EVALUATION = False
+
+    
