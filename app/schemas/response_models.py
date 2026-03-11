@@ -1,5 +1,5 @@
 # from pydantic import BaseModel
-# from typing import List, Optional, Dict
+# from typing import List, Optional
 
 
 # class StandardResponse(BaseModel):
@@ -9,21 +9,22 @@
 #     data: Optional[dict]
 
 
+# class ContextItem(BaseModel):
+#     rank: int
+#     text: str
+
+
 # class RAGResponse(BaseModel):
 
 #     question: str
 #     answer: str
 
 #     confidence: float
-
 #     grounded: bool
-#     grounding_score: float
 
 #     sources: List[str]
 
-#     top_contexts: List[Dict]
-
-#     evaluation: Optional[str] = None
+#     evaluation: Optional[str]
 
 #     context_used: List[str]
 
@@ -31,6 +32,11 @@
 #     tool_used: Optional[str]
 
 #     evaluation_enabled: bool
+
+#     top_contexts: List[ContextItem]
+
+
+
 
 
 from pydantic import BaseModel
@@ -41,7 +47,7 @@ class StandardResponse(BaseModel):
 
     success: bool
     message: str
-    data: Optional[dict]
+    data: Optional[dict] = None
 
 
 class ContextItem(BaseModel):
@@ -59,13 +65,15 @@ class RAGResponse(BaseModel):
 
     sources: List[str]
 
-    evaluation: Optional[str]
+    evaluation: Optional[str] = None
 
     context_used: List[str]
 
     session_id: str
-    tool_used: Optional[str]
 
-    evaluation_enabled: bool
+    # Optional metadata fields (do not override backend output)
+    tool_used: Optional[str] = None
 
-    top_contexts: List[ContextItem]
+    evaluation_enabled: Optional[bool] = None
+
+    top_contexts: Optional[List[ContextItem]] = None

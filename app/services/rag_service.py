@@ -1,23 +1,24 @@
 # import time
-# from typing import List, Dict
+# from typing import List
 
 # from openai import OpenAI
 
 # from app.core.vector_store import search_text
 # from app.core.logger import logger
+# from app.services.memory_service import memory
+
 # from app.config import (
 #     OPENAI_API_KEY,
 #     LLM_MODEL,
 #     MAX_CONTEXT_CHARS,
 #     MAX_PROMPT_TOTAL_CHARS,
-#     ENABLE_EVALUATION,
-#     HALLUCINATION_STRICT_MODE
+#     ENABLE_EVALUATION
 # )
 
 # client = OpenAI(api_key=OPENAI_API_KEY)
 
 
-# def detect_prompt_injection(query: str) -> bool:
+# def detect_prompt_injection(query: str):
 
 #     patterns = [
 #         "ignore previous instructions",
@@ -32,11 +33,30 @@
 #     return any(p in q for p in patterns)
 
 
-# def build_context(chunks: List[str]) -> str:
+# def rerank_chunks(query: str, chunks: List[dict], top_k: int = 5):
+
+#     scored = []
+
+#     query_words = set(query.lower().split())
+
+#     for chunk in chunks:
+
+#         text = chunk["text"].lower()
+
+#         score = sum(1 for word in query_words if word in text)
+
+#         scored.append((score, chunk))
+
+#     scored.sort(reverse=True, key=lambda x: x[0])
+
+#     return [c[1] for c in scored[:top_k]]
+
+
+# def build_context(chunks: List[str]):
 #     return "\n\n".join(chunks)
 
 
-# def calculate_confidence(chunks: List[str]) -> float:
+# def calculate_confidence(chunks: List[str]):
 
 #     total_chars = sum(len(c) for c in chunks)
 
@@ -50,10 +70,10 @@
 #     return 0.9
 
 
-# def generate_answer_from_llm(query: str, context: str):
+# def generate_answer_from_llm(query: str, context: str, history):
 
 #     system_prompt = """
-# You are an enterprise AI assistant.
+# You are AstraMind, an enterprise knowledge assistant.
 
 # Rules:
 # 1. Answer ONLY using the provided context.
@@ -61,7 +81,22 @@
 # 3. If context is insufficient say: I don't know.
 # """
 
+#     history_text = ""
+
+#     for msg in history:
+
+#         role = msg["role"]
+#         content = msg["content"]
+
+#         if role == "user":
+#             history_text += f"User: {content}\n"
+#         else:
+#             history_text += f"Assistant: {content}\n"
+
 #     user_prompt = f"""
+# Previous Conversation:
+# {history_text}
+
 # Context:
 # {context}
 
@@ -71,28 +106,25 @@
 # Answer:
 # """
 
-#     try:
+#     response = client.chat.completions.create(
+#         model=LLM_MODEL,
+#         messages=[
+#             {"role": "system", "content": system_prompt.strip()},
+#             {"role": "user", "content": user_prompt.strip()},
+#         ],
+#         temperature=0.2,
+#     )
 
-#         response = client.chat.completions.create(
-#             model=LLM_MODEL,
-#             messages=[
-#                 {"role": "system", "content": system_prompt.strip()},
-#                 {"role": "user", "content": user_prompt.strip()},
-#             ],
-#             temperature=0.2,
-#         )
-
-#         return response.choices[0].message.content.strip()
-
-#     except Exception as e:
-
-#         logger.error(f"LLM failure: {str(e)}")
-#         return "The system is temporarily unavailable."
+#     return response.choices[0].message.content.strip()
 
 
 # def generate_rag_answer(query: str, session_id: str, department: str):
 
 #     start_time = time.time()
+
+#     # ----------------------------
+#     # Prompt Injection Protection
+#     # ----------------------------
 
 #     if detect_prompt_injection(query):
 
@@ -107,9 +139,15 @@
 #             "session_id": session_id
 #         }
 
+#     history = memory.get_history(session_id)
+
+#     # ----------------------------
+#     # Retrieve Knowledge
+#     # ----------------------------
+
 #     try:
 
-#         retrieved_chunks = search_text(query, department=department)
+#         retrieved_chunks = search_text(query, department=department, limit=20)
 
 #     except Exception as e:
 
@@ -130,7 +168,7 @@
 
 #         return {
 #             "question": query,
-#             "answer": "I could not find information about this in the knowledge base.",
+#             "answer": f"I could not find this information in the {department} knowledge base.",
 #             "confidence": 0,
 #             "grounded": False,
 #             "sources": [],
@@ -139,11 +177,21 @@
 #             "session_id": session_id
 #         }
 
-#     texts = [chunk["text"] for chunk in retrieved_chunks]
+#     # ----------------------------
+#     # Rerank Retrieval Results
+#     # ----------------------------
 
-#     sources = list({chunk["source"] for chunk in retrieved_chunks})[:3]
+#     reranked_chunks = rerank_chunks(query, retrieved_chunks, top_k=5)
+
+#     texts = [chunk["text"] for chunk in reranked_chunks]
+
+#     sources = list({chunk["source"] for chunk in reranked_chunks})[:3]
 
 #     context = build_context(texts)
+
+#     # ----------------------------
+#     # Context Safety Limits
+#     # ----------------------------
 
 #     if len(context) > MAX_CONTEXT_CHARS:
 #         context = context[:MAX_CONTEXT_CHARS]
@@ -151,22 +199,59 @@
 #     if len(context) + len(query) > MAX_PROMPT_TOTAL_CHARS:
 #         context = context[:MAX_PROMPT_TOTAL_CHARS - len(query)]
 
-#     answer = generate_answer_from_llm(query, context)
-
 #     confidence = calculate_confidence(texts)
 
-#     grounded = confidence > 0.3
+#     # ----------------------------
+#     # Weak Retrieval Guard
+#     # ----------------------------
 
-#     evaluation = None
+#     if confidence < 0.3:
 
-#     if ENABLE_EVALUATION:
+#         return {
+#             "question": query,
+#             "answer": f"I could not find reliable information about this in the {department} knowledge base.",
+#             "confidence": confidence,
+#             "grounded": False,
+#             "sources": [],
+#             "evaluation": "Knowledge boundary triggered",
+#             "context_used": [],
+#             "session_id": session_id
+#         }
 
-#         if confidence >= 0.75:
-#             evaluation = "The context strongly supports the answer."
-#         elif confidence >= 0.5:
-#             evaluation = "The context partially supports the answer."
-#         else:
-#             evaluation = "The answer may be unreliable."
+#     # ----------------------------
+#     # Generate Answer
+#     # ----------------------------
+
+#     answer = generate_answer_from_llm(query, context, history)
+
+#     normalized_answer = answer.lower()
+
+#     # ----------------------------
+#     # Knowledge Boundary Safeguard
+#     # ----------------------------
+
+#     if (
+#         "i don't know" in normalized_answer
+#         or "cannot determine" in normalized_answer
+#         or "not enough information" in normalized_answer
+#     ):
+
+#         confidence = 0.2
+#         grounded = False
+#         sources = []
+#         evaluation = "Knowledge boundary triggered"
+
+#     else:
+
+#         grounded = True
+#         evaluation = "Answer generated from knowledge base"
+
+#     # ----------------------------
+#     # Store Conversation Memory
+#     # ----------------------------
+
+#     memory.add_message(session_id, "user", query)
+#     memory.add_message(session_id, "assistant", answer)
 
 #     latency = round((time.time() - start_time) * 1000, 2)
 
@@ -175,6 +260,10 @@
 #         "department": department,
 #         "latency_ms": latency
 #     })
+
+#     # ----------------------------
+#     # Final Response
+#     # ----------------------------
 
 #     return {
 #         "question": query,
@@ -186,6 +275,8 @@
 #         "context_used": texts,
 #         "session_id": session_id
 #     }
+
+
 
 
 import time
@@ -202,7 +293,6 @@ from app.config import (
     LLM_MODEL,
     MAX_CONTEXT_CHARS,
     MAX_PROMPT_TOTAL_CHARS,
-    ENABLE_EVALUATION
 )
 
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -221,6 +311,25 @@ def detect_prompt_injection(query: str):
     q = query.lower()
 
     return any(p in q for p in patterns)
+
+
+def rerank_chunks(query: str, chunks: List[dict], top_k: int = 5):
+
+    scored = []
+
+    query_words = set(query.lower().split())
+
+    for chunk in chunks:
+
+        text = chunk["text"].lower()
+
+        score = sum(1 for word in query_words if word in text)
+
+        scored.append((score, chunk))
+
+    scored.sort(reverse=True, key=lambda x: x[0])
+
+    return [c[1] for c in scored[:top_k]]
 
 
 def build_context(chunks: List[str]):
@@ -244,7 +353,7 @@ def calculate_confidence(chunks: List[str]):
 def generate_answer_from_llm(query: str, context: str, history):
 
     system_prompt = """
-You are an enterprise AI assistant.
+You are AstraMind, an enterprise knowledge assistant.
 
 Rules:
 1. Answer ONLY using the provided context.
@@ -277,40 +386,38 @@ Question:
 Answer:
 """
 
-    try:
+    response = client.chat.completions.create(
+        model=LLM_MODEL,
+        messages=[
+            {"role": "system", "content": system_prompt.strip()},
+            {"role": "user", "content": user_prompt.strip()},
+        ],
+        temperature=0.2,
+    )
 
-        response = client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=[
-                {"role": "system", "content": system_prompt.strip()},
-                {"role": "user", "content": user_prompt.strip()},
-            ],
-            temperature=0.2,
-        )
-
-        return response.choices[0].message.content.strip()
-
-    except Exception as e:
-
-        logger.error(f"LLM failure: {str(e)}")
-        return "The system is temporarily unavailable."
+    return response.choices[0].message.content.strip()
 
 
-def build_error_response(query, session_id, message):
+def normalize_answer(text: str):
 
-    return {
-        "question": query,
-        "answer": message,
-        "confidence": 0,
-        "grounded": False,
-        "sources": [],
-        "evaluation": None,
-        "context_used": [],
-        "session_id": session_id,
-        "tool_used": None,
-        "evaluation_enabled": ENABLE_EVALUATION,
-        "top_contexts": []
-    }
+    return (
+        text.lower()
+        .replace("’", "'")
+        .replace("`", "'")
+        .strip()
+    )
+
+
+def is_unknown_answer(answer: str):
+
+    normalized = normalize_answer(answer)
+
+    return (
+        "i don't know" in normalized
+        or "cannot determine" in normalized
+        or "not enough information" in normalized
+        or normalized == "unknown"
+    )
 
 
 def generate_rag_answer(query: str, session_id: str, department: str):
@@ -318,48 +425,57 @@ def generate_rag_answer(query: str, session_id: str, department: str):
     start_time = time.time()
 
     if detect_prompt_injection(query):
-        return build_error_response(
-            query,
-            session_id,
-            "Potential prompt injection detected."
-        )
+
+        return {
+            "question": query,
+            "answer": "Potential prompt injection detected.",
+            "confidence": 0,
+            "grounded": False,
+            "sources": [],
+            "evaluation": None,
+            "context_used": [],
+            "session_id": session_id
+        }
 
     history = memory.get_history(session_id)
 
     try:
-        retrieved_chunks = search_text(query, department=department)
+
+        retrieved_chunks = search_text(query, department=department, limit=20)
 
     except Exception as e:
 
         logger.error(f"Vector search failed: {str(e)}")
 
-        return build_error_response(
-            query,
-            session_id,
-            "Knowledge retrieval system unavailable."
-        )
+        return {
+            "question": query,
+            "answer": "Knowledge retrieval system unavailable.",
+            "confidence": 0,
+            "grounded": False,
+            "sources": [],
+            "evaluation": None,
+            "context_used": [],
+            "session_id": session_id
+        }
 
     if not retrieved_chunks:
 
-        return build_error_response(
-            query,
-            session_id,
-            "I could not find information about this in the knowledge base."
-        )
+        return {
+            "question": query,
+            "answer": f"I could not find this information in the {department} knowledge base.",
+            "confidence": 0,
+            "grounded": False,
+            "sources": [],
+            "evaluation": None,
+            "context_used": [],
+            "session_id": session_id
+        }
 
-    texts = []
-    sources = []
+    reranked_chunks = rerank_chunks(query, retrieved_chunks, top_k=5)
 
-    for chunk in retrieved_chunks:
+    texts = [chunk["text"] for chunk in reranked_chunks]
 
-        if isinstance(chunk, dict):
-            texts.append(chunk.get("text", ""))
-            if "source" in chunk:
-                sources.append(chunk["source"])
-        else:
-            texts.append(chunk)
-
-    sources = list(set(sources))[:3]
+    sources = list({chunk["source"] for chunk in reranked_chunks})[:3]
 
     context = build_context(texts)
 
@@ -369,22 +485,22 @@ def generate_rag_answer(query: str, session_id: str, department: str):
     if len(context) + len(query) > MAX_PROMPT_TOTAL_CHARS:
         context = context[:MAX_PROMPT_TOTAL_CHARS - len(query)]
 
-    answer = generate_answer_from_llm(query, context, history)
-
     confidence = calculate_confidence(texts)
 
-    grounded = confidence > 0.3
+    if confidence < 0.3:
 
-    evaluation = None
+        return {
+            "question": query,
+            "answer": f"I could not find reliable information about this in the {department} knowledge base.",
+            "confidence": confidence,
+            "grounded": False,
+            "sources": [],
+            "evaluation": "Knowledge boundary triggered",
+            "context_used": [],
+            "session_id": session_id
+        }
 
-    if ENABLE_EVALUATION:
-
-        if confidence >= 0.75:
-            evaluation = "The context strongly supports the answer."
-        elif confidence >= 0.5:
-            evaluation = "The context partially supports the answer."
-        else:
-            evaluation = "The answer may be unreliable."
+    answer = generate_answer_from_llm(query, context, history)
 
     memory.add_message(session_id, "user", query)
     memory.add_message(session_id, "assistant", answer)
@@ -397,19 +513,30 @@ def generate_rag_answer(query: str, session_id: str, department: str):
         "latency_ms": latency
     })
 
+    # ---------------------------------------------------------
+    # FINAL SAFEGUARD (CANNOT BE OVERRIDDEN)
+    # ---------------------------------------------------------
+
+    if is_unknown_answer(answer):
+
+        return {
+            "question": query,
+            "answer": "I don't know.",
+            "confidence": 0.2,
+            "grounded": False,
+            "sources": [],
+            "evaluation": "Knowledge boundary triggered",
+            "context_used": [],
+            "session_id": session_id
+        }
+
     return {
         "question": query,
         "answer": answer,
         "confidence": confidence,
-        "grounded": grounded,
+        "grounded": True,
         "sources": sources,
-        "evaluation": evaluation,
+        "evaluation": "Answer generated from knowledge base",
         "context_used": texts,
-        "session_id": session_id,
-        "tool_used": None,
-        "evaluation_enabled": ENABLE_EVALUATION,
-        "top_contexts": [
-            {"rank": i + 1, "text": t}
-            for i, t in enumerate(texts[:3])
-        ]
+        "session_id": session_id
     }
