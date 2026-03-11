@@ -264,6 +264,10 @@ def add_text(text: str, doc_id: str, metadata: dict = None):
 def search_text(query: str, department: str = None, limit: int = 5):
 
     try:
+
+        # Ensure collection exists (production safety)
+        create_collection()
+
         query_vector = generate_embedding(query)
 
         search_filter = None
