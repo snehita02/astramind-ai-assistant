@@ -44,6 +44,11 @@ class StandardResponse(BaseModel):
     data: Optional[dict]
 
 
+class ContextItem(BaseModel):
+    rank: int
+    text: str
+
+
 class RAGResponse(BaseModel):
 
     question: str
@@ -62,3 +67,5 @@ class RAGResponse(BaseModel):
     tool_used: Optional[str]
 
     evaluation_enabled: bool
+
+    top_contexts: List[ContextItem]
