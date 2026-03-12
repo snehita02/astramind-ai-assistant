@@ -91,3 +91,8 @@ def root():
         "service": "AstraMind Enterprise AI Platform",
         "status": "running"
     }
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
