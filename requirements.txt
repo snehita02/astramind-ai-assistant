@@ -10,3 +10,5 @@ pydantic
 pydantic-settings
 gitpython
 python-jose[cryptography]
+bcrypt
+passlib[bcrypt]
