@@ -30,7 +30,7 @@
 
 #     conn.commit()
 
-#     # 🔑 Create default admin if not exists
+#     # Create default admin if not exists
 #     cursor.execute("SELECT * FROM users WHERE user_id='admin'")
 #     admin = cursor.fetchone()
 
@@ -60,6 +60,18 @@
 
 #     conn = get_connection()
 #     cursor = conn.cursor()
+
+#     # 🔍 Check if user already exists
+#     cursor.execute(
+#         "SELECT * FROM users WHERE user_id=?",
+#         (user_id,)
+#     )
+
+#     existing_user = cursor.fetchone()
+
+#     if existing_user:
+#         conn.close()
+#         raise ValueError("User already exists")
 
 #     cursor.execute(
 #         """
@@ -117,6 +129,13 @@
 
 
 
+
+
+
+
+
+
+
 import sqlite3
 import json
 from datetime import datetime
@@ -124,14 +143,29 @@ from pathlib import Path
 
 from app.auth.password_utils import hash_password
 
-DB_PATH = Path("astramind_users.db")
 
+# --------------------------------------------------
+# Database Path (Render-safe)
+# --------------------------------------------------
+
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+DB_PATH = BASE_DIR / "astramind_users.db"
+
+
+# --------------------------------------------------
+# Connection
+# --------------------------------------------------
 
 def get_connection():
+
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
+
+# --------------------------------------------------
+# Initialize Database
+# --------------------------------------------------
 
 def initialize_database():
 
@@ -149,7 +183,10 @@ def initialize_database():
 
     conn.commit()
 
+    # --------------------------------------------------
     # Create default admin if not exists
+    # --------------------------------------------------
+
     cursor.execute("SELECT * FROM users WHERE user_id='admin'")
     admin = cursor.fetchone()
 
@@ -175,12 +212,15 @@ def initialize_database():
     conn.close()
 
 
+# --------------------------------------------------
+# Create User
+# --------------------------------------------------
+
 def create_user(user_id: str, password_hash: str, group_ids):
 
     conn = get_connection()
     cursor = conn.cursor()
 
-    # 🔍 Check if user already exists
     cursor.execute(
         "SELECT * FROM users WHERE user_id=?",
         (user_id,)
@@ -189,6 +229,7 @@ def create_user(user_id: str, password_hash: str, group_ids):
     existing_user = cursor.fetchone()
 
     if existing_user:
+
         conn.close()
         raise ValueError("User already exists")
 
@@ -208,6 +249,10 @@ def create_user(user_id: str, password_hash: str, group_ids):
     conn.commit()
     conn.close()
 
+
+# --------------------------------------------------
+# Get User
+# --------------------------------------------------
 
 def get_user(user_id: str):
 

@@ -201,6 +201,13 @@
 
 
 
+
+
+
+
+
+
+
 import os
 from typing import Union, List
 
@@ -308,7 +315,7 @@ def add_text(text: str, doc_id: str, metadata: dict = None):
 
 
 # --------------------------------------------------
-# Search (UPDATED FOR MULTI-DEPARTMENT PERMISSIONS)
+# Search
 # --------------------------------------------------
 
 def search_text(
@@ -323,10 +330,7 @@ def search_text(
 
         search_filter = None
 
-        # --------------------------------------------------
         # SINGLE DEPARTMENT
-        # --------------------------------------------------
-
         if isinstance(department, str):
 
             search_filter = Filter(
@@ -338,10 +342,7 @@ def search_text(
                 ]
             )
 
-        # --------------------------------------------------
-        # MULTIPLE DEPARTMENTS (STEP 35)
-        # --------------------------------------------------
-
+        # MULTIPLE DEPARTMENTS
         elif isinstance(department, list) and department:
 
             search_filter = Filter(
@@ -354,14 +355,14 @@ def search_text(
                 ]
             )
 
-        semantic_results = client.query_points(
+        results = client.query_points(
             collection_name=COLLECTION_NAME,
             query=query_vector,
             limit=20,
             query_filter=search_filter
         )
 
-        semantic_payloads = [p.payload for p in semantic_results.points]
+        semantic_payloads = [p.payload for p in results.points]
 
         seen = set()
         final_payloads = []
@@ -377,6 +378,7 @@ def search_text(
                 final_payloads.append({
                     "text": text,
                     "source": payload.get("source", "unknown"),
+                    "department": payload.get("department", "unknown"),
                     "type": payload.get("type", "unknown")
                 })
 
