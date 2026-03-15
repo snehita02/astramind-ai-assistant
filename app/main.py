@@ -123,14 +123,12 @@
 
 
 
-
-
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router as api_router
 from app.auth.auth_routes import router as auth_router
+
 
 from app.database.auth_database import initialize_database
 
