@@ -465,7 +465,7 @@ from app.config import QDRANT_HOST, QDRANT_PORT
 
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 
-SIMILARITY_THRESHOLD = 0.65
+SIMILARITY_THRESHOLD = 0.25
 
 
 # --------------------------------------------------
