@@ -391,6 +391,195 @@
 
 
 
+# import tempfile
+# import shutil
+# import os
+# import uuid
+# import time
+
+# from git import Repo
+
+# from app.core.vector_store import add_text
+# from app.core.logger import logger
+
+
+# # -------------------------------
+# # SETTINGS
+# # -------------------------------
+
+# CHUNK_SIZE = 1000
+# CHUNK_OVERLAP = 200
+
+# MAX_FILE_SIZE = 200000  # 200KB safety limit
+
+# # Only useful text/code files
+# ALLOWED_EXTENSIONS = (
+#     ".py",
+#     ".md",
+#     ".txt",
+#     ".ipynb"
+# )
+
+# # Skip heavy folders
+# IGNORE_DIRS = {
+#     ".git",
+#     "tests",
+#     "test",
+#     "examples",
+#     "build",
+#     "dist",
+#     "__pycache__",
+#     "node_modules",
+#     ".venv",
+#     ".idea",
+#     ".vscode",
+#     "site-packages",
+#     "docs/_build"
+# }
+
+# # Slow down embedding requests slightly
+# EMBEDDING_DELAY = 0.05
+
+
+# # -------------------------------
+# # TEXT CHUNKING
+# # -------------------------------
+
+# def chunk_text(text):
+
+#     chunks = []
+#     start = 0
+
+#     text_length = len(text)
+
+#     while start < text_length:
+
+#         end = start + CHUNK_SIZE
+#         chunk = text[start:end]
+
+#         if chunk.strip():
+#             chunks.append(chunk)
+
+#         start += CHUNK_SIZE - CHUNK_OVERLAP
+
+#     return chunks
+
+
+# # -------------------------------
+# # REPO INGESTION
+# # -------------------------------
+
+# def ingest_repo(repo_url, department):
+
+#     temp_dir = tempfile.mkdtemp()
+
+#     try:
+
+#         logger.info(f"Cloning repo: {repo_url}")
+
+#         # shallow clone for speed
+#         Repo.clone_from(repo_url, temp_dir, depth=1)
+
+#         stored_chunks = 0
+
+#         for root, dirs, files in os.walk(temp_dir, topdown=True):
+
+#             # filter unwanted directories
+#             dirs[:] = [d for d in dirs if d not in IGNORE_DIRS]
+
+#             for file in files:
+
+#                 if not file.endswith(ALLOWED_EXTENSIONS):
+#                     continue
+
+#                 file_path = os.path.join(root, file)
+
+#                 # Skip files that disappear during traversal
+#                 if not os.path.exists(file_path):
+#                     continue
+
+#                 try:
+
+#                     # Skip large files
+#                     if os.path.getsize(file_path) > MAX_FILE_SIZE:
+#                         continue
+
+#                 except Exception:
+#                     continue
+
+#                 try:
+
+#                     with open(
+#                         file_path,
+#                         "r",
+#                         encoding="utf-8",
+#                         errors="ignore"
+#                     ) as f:
+
+#                         content = f.read()
+
+#                 except Exception:
+#                     continue
+
+#                 chunks = chunk_text(content)
+
+#                 for chunk in chunks:
+
+#                     try:
+
+#                         add_text(
+#                             text=chunk,
+#                             doc_id=str(uuid.uuid4()),
+#                             metadata={
+#                                 "department": department,
+#                                 "source": repo_url,
+#                                 "type": "repo"
+#                             }
+#                         )
+
+#                         stored_chunks += 1
+
+#                         # Prevent API overload
+#                         time.sleep(EMBEDDING_DELAY)
+
+#                     except Exception as e:
+
+#                         logger.error(f"Embedding failed: {str(e)}")
+
+#         logger.info(
+#             f"repo_ingestion_complete | repo={repo_url} | department={department} | chunks={stored_chunks}"
+#         )
+
+#     except Exception as e:
+
+#         logger.error(f"Repo store failed: {str(e)}")
+
+#     finally:
+
+#         try:
+#             shutil.rmtree(temp_dir)
+#         except Exception:
+#             pass
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 import tempfile
 import shutil
 import os
@@ -411,6 +600,9 @@ CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200
 
 MAX_FILE_SIZE = 200000  # 200KB safety limit
+
+# Maximum files to ingest per repo (prevents runaway ingestion)
+MAX_FILES_PER_REPO = 2000
 
 # Only useful text/code files
 ALLOWED_EXTENSIONS = (
@@ -434,11 +626,26 @@ IGNORE_DIRS = {
     ".idea",
     ".vscode",
     "site-packages",
-    "docs/_build"
+    "docs/_build",
+    "benchmark",
+    "benchmarks",
+    "scripts",
+    "tools",
+}
+
+# Prioritize these directories first (better signal)
+PRIORITY_DIRS = {
+    "docs",
+    "doc",
+    "core",
+    "src",
+    "api",
+    "app",
+    "library"
 }
 
 # Slow down embedding requests slightly
-EMBEDDING_DELAY = 0.05
+EMBEDDING_DELAY = 0.03
 
 
 # -------------------------------
@@ -449,7 +656,6 @@ def chunk_text(text):
 
     chunks = []
     start = 0
-
     text_length = len(text)
 
     while start < text_length:
@@ -463,6 +669,21 @@ def chunk_text(text):
         start += CHUNK_SIZE - CHUNK_OVERLAP
 
     return chunks
+
+
+# -------------------------------
+# FILE PRIORITY CHECK
+# -------------------------------
+
+def is_priority_file(file_path):
+
+    parts = file_path.lower().split(os.sep)
+
+    for p in parts:
+        if p in PRIORITY_DIRS:
+            return True
+
+    return False
 
 
 # -------------------------------
@@ -481,10 +702,17 @@ def ingest_repo(repo_url, department):
         Repo.clone_from(repo_url, temp_dir, depth=1)
 
         stored_chunks = 0
+        processed_files = 0
+
+        priority_files = []
+        other_files = []
+
+        # -------------------------------
+        # SCAN FILES FIRST
+        # -------------------------------
 
         for root, dirs, files in os.walk(temp_dir, topdown=True):
 
-            # filter unwanted directories
             dirs[:] = [d for d in dirs if d not in IGNORE_DIRS]
 
             for file in files:
@@ -494,60 +722,80 @@ def ingest_repo(repo_url, department):
 
                 file_path = os.path.join(root, file)
 
-                # Skip files that disappear during traversal
-                if not os.path.exists(file_path):
-                    continue
+                if is_priority_file(file_path):
+                    priority_files.append(file_path)
+                else:
+                    other_files.append(file_path)
 
-                try:
+        # prioritize better files
+        files_to_process = priority_files + other_files
 
-                    # Skip large files
-                    if os.path.getsize(file_path) > MAX_FILE_SIZE:
-                        continue
-
-                except Exception:
-                    continue
-
-                try:
-
-                    with open(
-                        file_path,
-                        "r",
-                        encoding="utf-8",
-                        errors="ignore"
-                    ) as f:
-
-                        content = f.read()
-
-                except Exception:
-                    continue
-
-                chunks = chunk_text(content)
-
-                for chunk in chunks:
-
-                    try:
-
-                        add_text(
-                            text=chunk,
-                            doc_id=str(uuid.uuid4()),
-                            metadata={
-                                "department": department,
-                                "source": repo_url,
-                                "type": "repo"
-                            }
-                        )
-
-                        stored_chunks += 1
-
-                        # Prevent API overload
-                        time.sleep(EMBEDDING_DELAY)
-
-                    except Exception as e:
-
-                        logger.error(f"Embedding failed: {str(e)}")
+        # limit repo size
+        files_to_process = files_to_process[:MAX_FILES_PER_REPO]
 
         logger.info(
-            f"repo_ingestion_complete | repo={repo_url} | department={department} | chunks={stored_chunks}"
+            f"Repo file scan complete | repo={repo_url} | files={len(files_to_process)}"
+        )
+
+        # -------------------------------
+        # INGEST FILES
+        # -------------------------------
+
+        for file_path in files_to_process:
+
+            if not os.path.exists(file_path):
+                continue
+
+            try:
+
+                if os.path.getsize(file_path) > MAX_FILE_SIZE:
+                    continue
+
+            except Exception:
+                continue
+
+            try:
+
+                with open(
+                    file_path,
+                    "r",
+                    encoding="utf-8",
+                    errors="ignore"
+                ) as f:
+
+                    content = f.read()
+
+            except Exception:
+                continue
+
+            chunks = chunk_text(content)
+
+            for chunk in chunks:
+
+                try:
+
+                    add_text(
+                        text=chunk,
+                        doc_id=str(uuid.uuid4()),
+                        metadata={
+                            "department": department,
+                            "source": repo_url,
+                            "type": "repo"
+                        }
+                    )
+
+                    stored_chunks += 1
+
+                    time.sleep(EMBEDDING_DELAY)
+
+                except Exception as e:
+
+                    logger.error(f"Embedding failed: {str(e)}")
+
+            processed_files += 1
+
+        logger.info(
+            f"repo_ingestion_complete | repo={repo_url} | files_processed={processed_files} | chunks={stored_chunks}"
         )
 
     except Exception as e:
