@@ -990,6 +990,268 @@
 
 
 
+# import os
+# from typing import Union, List
+
+# from qdrant_client import QdrantClient
+# from qdrant_client.models import (
+#     VectorParams,
+#     Distance,
+#     PointStruct,
+#     Filter,
+#     FieldCondition,
+#     MatchValue,
+#     MatchAny
+# )
+
+# from app.core.embeddings import generate_embedding
+# from app.core.logger import logger
+# from app.config import QDRANT_HOST, QDRANT_PORT
+
+
+# QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
+
+# SIMILARITY_THRESHOLD = 0.15
+
+
+# # --------------------------------------------------
+# # Qdrant Connection
+# # --------------------------------------------------
+
+# if QDRANT_API_KEY:
+#     client = QdrantClient(
+#         url=f"https://{QDRANT_HOST}",
+#         api_key=QDRANT_API_KEY
+#     )
+# else:
+#     client = QdrantClient(
+#         host=QDRANT_HOST,
+#         port=QDRANT_PORT
+#     )
+
+
+# COLLECTION_NAME = "astramind_collection"
+
+
+# # --------------------------------------------------
+# # Normalize Department
+# # --------------------------------------------------
+
+# VALID_DEPARTMENTS = {
+#     "general",
+#     "engineering",
+#     "finance",
+#     "hr",
+#     "research"
+# }
+
+
+# def normalize_department(department: str):
+
+#     if not department:
+#         return "general"
+
+#     department = department.strip().lower()
+
+#     if department not in VALID_DEPARTMENTS:
+#         logger.warning(f"Invalid department '{department}', defaulting to general")
+#         return "general"
+
+#     return department
+
+
+# # --------------------------------------------------
+# # Create Collection
+# # --------------------------------------------------
+
+# def create_collection():
+
+#     try:
+
+#         existing = client.get_collections()
+#         collection_names = [c.name for c in existing.collections]
+
+#         if COLLECTION_NAME in collection_names:
+#             logger.info("Collection already exists.")
+#             return
+
+#         client.create_collection(
+#             collection_name=COLLECTION_NAME,
+#             vectors_config=VectorParams(
+#                 size=1536,
+#                 distance=Distance.COSINE,
+#             ),
+#         )
+
+#         client.create_payload_index(
+#             collection_name=COLLECTION_NAME,
+#             field_name="department",
+#             field_schema="keyword"
+#         )
+
+#         logger.info("Vector collection created successfully.")
+
+#     except Exception as e:
+
+#         logger.error(f"Collection creation failed: {str(e)}")
+#         raise
+
+
+# # --------------------------------------------------
+# # Add Text
+# # --------------------------------------------------
+
+# def add_text(text: str, doc_id: str, metadata: dict = None):
+
+#     try:
+
+#         embedding = generate_embedding(text)
+
+#         payload = metadata.copy() if metadata else {}
+
+#         department = payload.get("department", "general")
+#         payload["department"] = normalize_department(department)
+
+#         payload["text"] = text
+
+#         client.upsert(
+#             collection_name=COLLECTION_NAME,
+#             points=[
+#                 PointStruct(
+#                     id=doc_id,
+#                     vector=embedding,
+#                     payload=payload
+#                 )
+#             ]
+#         )
+
+#     except Exception as e:
+#         logger.error(f"Vector store upsert failed: {str(e)}")
+#         raise
+
+
+# # --------------------------------------------------
+# # Search Text
+# # --------------------------------------------------
+
+# def search_text(
+#     query: str,
+#     department: Union[str, List[str]] = None,
+#     limit: int = 5
+# ):
+
+#     try:
+
+#         query_vector = generate_embedding(query)
+
+#         search_filter = None
+
+#         # --------------------------------------------------
+#         # Allow department + general documents
+#         # --------------------------------------------------
+
+#         if isinstance(department, str):
+
+#             department = normalize_department(department)
+
+#             search_filter = Filter(
+#                 should=[
+#                     FieldCondition(
+#                         key="department",
+#                         match=MatchValue(value=department)
+#                     ),
+#                     FieldCondition(
+#                         key="department",
+#                         match=MatchValue(value="general")
+#                     )
+#                 ]
+#             )
+
+#         elif isinstance(department, list) and department:
+
+#             department = [
+#                 normalize_department(d) for d in department
+#             ]
+
+#             department.append("general")
+
+#             search_filter = Filter(
+#                 must=[
+#                     FieldCondition(
+#                         key="department",
+#                         match=MatchAny(any=department)
+#                     )
+#                 ]
+#             )
+
+#         # --------------------------------------------------
+#         # Vector Search
+#         # --------------------------------------------------
+
+#         results = client.query_points(
+#             collection_name=COLLECTION_NAME,
+#             query=query_vector,
+#             limit=20,
+#             query_filter=search_filter
+#         )
+
+#         final_results = []
+#         seen = set()
+
+#         for p in results.points:
+
+#             score = p.score
+
+#             if score < SIMILARITY_THRESHOLD:
+#                 continue
+
+#             payload = p.payload
+#             text = payload.get("text")
+
+#             if not text:
+#                 continue
+
+#             if text in seen:
+#                 continue
+
+#             seen.add(text)
+
+#             final_results.append({
+#                 "text": text,
+#                 "source": payload.get("source", "unknown"),
+#                 "department": payload.get("department", "unknown"),
+#                 "type": payload.get("type", "unknown"),
+#                 "score": score
+#             })
+
+#         return final_results[:limit]
+
+#     except Exception as e:
+
+#         logger.error(f"Vector search failed: {str(e)}")
+#         raise
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 import os
 from typing import Union, List
 
@@ -1131,7 +1393,7 @@ def add_text(text: str, doc_id: str, metadata: dict = None):
 
 
 # --------------------------------------------------
-# Search Text
+# Search Text (STRICT FIX)
 # --------------------------------------------------
 
 def search_text(
@@ -1144,45 +1406,36 @@ def search_text(
 
         query_vector = generate_embedding(query)
 
+        allowed_departments = None
         search_filter = None
 
         # --------------------------------------------------
-        # Allow department + general documents
+        # Normalize departments
         # --------------------------------------------------
 
         if isinstance(department, str):
-
-            department = normalize_department(department)
-
-            search_filter = Filter(
-                should=[
-                    FieldCondition(
-                        key="department",
-                        match=MatchValue(value=department)
-                    ),
-                    FieldCondition(
-                        key="department",
-                        match=MatchValue(value="general")
-                    )
-                ]
-            )
+            allowed_departments = [normalize_department(department)]
 
         elif isinstance(department, list) and department:
-
-            department = [
+            allowed_departments = [
                 normalize_department(d) for d in department
             ]
 
-            department.append("general")
+        # Always allow "general"
+        if allowed_departments:
+            if "general" not in allowed_departments:
+                allowed_departments.append("general")
 
             search_filter = Filter(
                 must=[
                     FieldCondition(
                         key="department",
-                        match=MatchAny(any=department)
+                        match=MatchAny(any=allowed_departments)
                     )
                 ]
             )
+
+        logger.info(f"VECTOR SEARCH FILTER: {allowed_departments}")
 
         # --------------------------------------------------
         # Vector Search
@@ -1191,21 +1444,32 @@ def search_text(
         results = client.query_points(
             collection_name=COLLECTION_NAME,
             query=query_vector,
-            limit=20,
+            limit=30,
             query_filter=search_filter
         )
 
         final_results = []
         seen = set()
 
+        # --------------------------------------------------
+        # 🔥 STRICT POST-FILTER (CRITICAL FIX)
+        # --------------------------------------------------
+
         for p in results.points:
+
+            payload = p.payload
+            doc_department = payload.get("department", "general")
+
+            # 🚨 HARD FILTER (THIS FIXES YOUR BUG)
+            if allowed_departments:
+                if doc_department not in allowed_departments:
+                    continue
 
             score = p.score
 
             if score < SIMILARITY_THRESHOLD:
                 continue
 
-            payload = p.payload
             text = payload.get("text")
 
             if not text:
@@ -1219,10 +1483,12 @@ def search_text(
             final_results.append({
                 "text": text,
                 "source": payload.get("source", "unknown"),
-                "department": payload.get("department", "unknown"),
+                "department": doc_department,
                 "type": payload.get("type", "unknown"),
                 "score": score
             })
+
+        logger.info(f"RESULTS AFTER STRICT FILTER: {len(final_results)}")
 
         return final_results[:limit]
 
