@@ -3307,7 +3307,7 @@ Answer:
             {"role": "system", "content": system_prompt.strip()},
             {"role": "user", "content": user_prompt.strip()},
         ],
-        temperature=0.2,
+        temperature=0,
     )
 
     return response.choices[0].message.content.strip()
