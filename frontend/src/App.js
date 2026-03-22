@@ -30,19 +30,51 @@
 
 
 
+// import React, { useState } from "react";
+// import Login from "./pages/Login";
+// import Chat from "./pages/Chat";
+
+// function App() {
+//   const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+//   return (
+//     <div>
+//       {!isLoggedIn ? (
+//         <Login onLogin={() => setIsLoggedIn(true)} />
+//       ) : (
+//         <Chat />
+//       )}
+//     </div>
+//   );
+// }
+
+// export default App;
+
+
+
+
+
+
+
+
+
+
+
 import React, { useState } from "react";
-import Login from "./pages/Login";
-import Chat from "./pages/Chat";
+import Login from "./Login";
+import Chat from "./Chat";
+import { isAuthenticated } from "./api";
 
 function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  const [loggedIn, setLoggedIn] = useState(isAuthenticated());
 
   return (
     <div>
-      {!isLoggedIn ? (
-        <Login onLogin={() => setIsLoggedIn(true)} />
+      {loggedIn ? (
+        <Chat onLogout={() => setLoggedIn(false)} />
       ) : (
-        <Chat />
+        <Login onLoginSuccess={() => setLoggedIn(true)} />
       )}
     </div>
   );
