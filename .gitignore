@@ -1,14 +1,54 @@
-# venv/
-# __pycache__/
+# # venv/
+# # __pycache__/
+# # .env
+# # *.pyc
+# # .DS_Store
+
+
+# # Environment variables
 # .env
+
+# # Python
+# __pycache__/
 # *.pyc
+# *.pyo
+# *.pyd
+
+# # Virtual environments
+# venv/
+# env/
+
+# # Mac
 # .DS_Store
 
+# # Docker
+# qdrant_storage/
 
-# Environment variables
+# # Logs
+# *.log
+
+# # IDE
+# .vscode/
+# .idea/
+
+
+
+
+
+
+
+
+
+
+
+# -----------------------
+# ENVIRONMENT
+# -----------------------
 .env
 
-# Python
+# -----------------------
+# PYTHON
+# -----------------------
 __pycache__/
 *.pyc
 *.pyo
@@ -18,17 +58,43 @@ __pycache__/
 venv/
 env/
 
-# Mac
-.DS_Store
+# -----------------------
+# DATABASE
+# -----------------------
+*.db
 
-# Docker
-qdrant_storage/
+# -----------------------
+# NODE / FRONTEND
+# -----------------------
+node_modules/
+frontend/node_modules/
 
-# Logs
+# Build files
+frontend/build/
+
+# -----------------------
+# LOGS
+# -----------------------
 *.log
 
+# -----------------------
+# OS FILES
+# -----------------------
+.DS_Store
+
+# -----------------------
 # IDE
+# -----------------------
 .vscode/
 .idea/
 
+# -----------------------
+# DOCKER / QDRANT
+# -----------------------
+qdrant_storage/
 
+# -----------------------
+# MISC
+# -----------------------
+*.swp
+*.bak
