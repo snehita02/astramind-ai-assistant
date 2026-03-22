@@ -151,7 +151,8 @@ function Chat() {
       const token = localStorage.getItem("token");
 
       const response = await fetch(
-        `http://127.0.0.1:8000/api/v1/ask?query=${encodeURIComponent(currentQuery)}&session_id=test`,
+        // `http://127.0.0.1:8000/api/v1/ask?query=${encodeURIComponent(currentQuery)}&session_id=test`,
+        `https://astramind-api.onrender.com/api/v1/ask?query=${encodeURIComponent(query)}&session_id=test`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
