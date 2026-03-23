@@ -316,22 +316,112 @@
 
 
 
+// const API_BASE_URL = "https://astramind-api.onrender.com";
+
+// // -----------------------------
+// // LOGIN (FIXED → JSON)
+// // -----------------------------
+// export const loginUser = async (user_id, password) => {
+
+//   const response = await fetch(`${API_BASE_URL}/auth/login`, {
+//     method: "POST",
+//     headers: {
+//       "Content-Type": "application/json", // ✅ FIX
+//     },
+//     body: JSON.stringify({
+//       user_id: user_id,
+//       password: password,
+//     }), // ✅ FIX
+//   });
+
+//   const data = await response.json();
+
+//   if (!response.ok) {
+//     throw new Error(data.detail || "Invalid credentials");
+//   }
+
+//   // ✅ Store token
+//   localStorage.setItem("token", data.access_token);
+
+//   return data;
+// };
+
+
+// // -----------------------------
+// // ASK QUESTION
+// // -----------------------------
+// export const askQuestion = async (query, session_id = "default") => {
+
+//   const token = localStorage.getItem("token");
+
+//   if (!token) {
+//     throw new Error("User not logged in");
+//   }
+
+//   const response = await fetch(
+//     `${API_BASE_URL}/api/v1/ask?query=${encodeURIComponent(query)}&session_id=${session_id}`,
+//     {
+//       method: "GET",
+//       headers: {
+//         "Authorization": `Bearer ${token}`,
+//       },
+//     }
+//   );
+
+//   const data = await response.json();
+
+//   if (!response.ok) {
+//     throw new Error(data.detail || "Error fetching response");
+//   }
+
+//   return data;
+// };
+
+
+// // -----------------------------
+// // LOGOUT
+// // -----------------------------
+// export const logoutUser = () => {
+//   localStorage.removeItem("token");
+// };
+
+
+// // -----------------------------
+// // CHECK AUTH
+// // -----------------------------
+// export const isAuthenticated = () => {
+//   return !!localStorage.getItem("token");
+// };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const API_BASE_URL = "https://astramind-api.onrender.com";
 
 // -----------------------------
-// LOGIN (FIXED → JSON)
+// LOGIN (FINAL FIX)
 // -----------------------------
 export const loginUser = async (user_id, password) => {
 
   const response = await fetch(`${API_BASE_URL}/auth/login`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json", // ✅ FIX
+      "Content-Type": "application/json", // ✅ MUST BE JSON
     },
     body: JSON.stringify({
-      user_id: user_id,
-      password: password,
-    }), // ✅ FIX
+      user_id,
+      password,
+    }),
   });
 
   const data = await response.json();
@@ -340,7 +430,6 @@ export const loginUser = async (user_id, password) => {
     throw new Error(data.detail || "Invalid credentials");
   }
 
-  // ✅ Store token
   localStorage.setItem("token", data.access_token);
 
   return data;
@@ -363,7 +452,7 @@ export const askQuestion = async (query, session_id = "default") => {
     {
       method: "GET",
       headers: {
-        "Authorization": `Bearer ${token}`,
+        Authorization: `Bearer ${token}`,
       },
     }
   );
