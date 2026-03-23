@@ -92,8 +92,89 @@
 
 
 
+// import React, { useState, useEffect } from "react";
+// import { loginUser, isAuthenticated } from "./api";
+
+// const Login = ({ onLoginSuccess }) => {
+
+//   const [userId, setUserId] = useState("");
+//   const [password, setPassword] = useState("");
+//   const [error, setError] = useState("");
+
+//   // ✅ Auto login if token exists
+//   useEffect(() => {
+//     if (isAuthenticated()) {
+//       onLoginSuccess();
+//     }
+//   }, []);
+
+//   const handleLogin = async () => {
+//     try {
+//       setError("");
+//       await loginUser(userId, password);
+//       onLoginSuccess();
+//     } catch (err) {
+//       setError(err.message);
+//     }
+//   };
+
+//   return (
+//     <div style={{ textAlign: "center", marginTop: "100px" }}>
+//       <h1>AstraMind Login</h1>
+
+//       <input
+//         type="text"
+//         placeholder="User ID"
+//         value={userId}
+//         onChange={(e) => setUserId(e.target.value)}
+//         style={{ display: "block", margin: "10px auto", padding: "10px" }}
+//       />
+
+//       <input
+//         type="password"
+//         placeholder="Password"
+//         value={password}
+//         onChange={(e) => setPassword(e.target.value)}
+//         style={{ display: "block", margin: "10px auto", padding: "10px" }}
+//       />
+
+//       <button
+//         onClick={handleLogin}
+//         style={{ padding: "10px 20px", backgroundColor: "#007bff", color: "white" }}
+//       >
+//         Login
+//       </button>
+
+//       {error && <p style={{ color: "red" }}>{error}</p>}
+//     </div>
+//   );
+// };
+
+// export default Login;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 import React, { useState, useEffect } from "react";
-import { loginUser, isAuthenticated } from "./api";
+import { loginUser, isAuthenticated } from "../services/api"; // ✅ FIXED PATH
 
 const Login = ({ onLoginSuccess }) => {
 
@@ -101,12 +182,11 @@ const Login = ({ onLoginSuccess }) => {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
-  // ✅ Auto login if token exists
   useEffect(() => {
     if (isAuthenticated()) {
       onLoginSuccess();
     }
-  }, []);
+  }, [onLoginSuccess]);
 
   const handleLogin = async () => {
     try {
@@ -114,7 +194,7 @@ const Login = ({ onLoginSuccess }) => {
       await loginUser(userId, password);
       onLoginSuccess();
     } catch (err) {
-      setError(err.message);
+      setError(err.message || "Invalid credentials");
     }
   };
 
@@ -138,10 +218,7 @@ const Login = ({ onLoginSuccess }) => {
         style={{ display: "block", margin: "10px auto", padding: "10px" }}
       />
 
-      <button
-        onClick={handleLogin}
-        style={{ padding: "10px 20px", backgroundColor: "#007bff", color: "white" }}
-      >
+      <button onClick={handleLogin}>
         Login
       </button>
 

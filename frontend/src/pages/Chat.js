@@ -202,6 +202,7 @@
 
 
 import React, { useState, useRef, useEffect } from "react";
+import { askQuestion } from "../services/api"; // ✅ FIX
 
 function Chat({ onLogout }) {
   const [query, setQuery] = useState("");
