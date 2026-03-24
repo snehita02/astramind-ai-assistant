@@ -95,14 +95,56 @@
 
 
 
-import React, { useState } from "react";
+// import React, { useState } from "react";
+// import Login from "./pages/Login";
+// import Chat from "./pages/Chat";
+
+// function App() {
+//   const [isLoggedIn, setIsLoggedIn] = useState(
+//     !!localStorage.getItem("token")
+//   );
+
+//   return (
+//     <div>
+//       {isLoggedIn ? (
+//         <Chat onLogout={() => setIsLoggedIn(false)} />
+//       ) : (
+//         <Login onLoginSuccess={() => setIsLoggedIn(true)} />
+//       )}
+//     </div>
+//   );
+// }
+
+// export default App;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import React, { useState, useEffect } from "react";
 import Login from "./pages/Login";
 import Chat from "./pages/Chat";
 
 function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(
-    !!localStorage.getItem("token")
-  );
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  // ✅ Check token on first load ONLY
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (token) {
+      setIsLoggedIn(true);
+    }
+  }, []);
 
   return (
     <div>
