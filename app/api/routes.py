@@ -1670,7 +1670,6 @@
 
 
 
-
 from fastapi import APIRouter, HTTPException, Request, Depends
 
 from app.core.llm_provider import generate_response
@@ -1691,6 +1690,12 @@ from app.auth.permissions import resolve_departments
 from app.config import MAX_QUERY_LENGTH
 from app.schemas.response_models import RAGResponse, StandardResponse
 
+# ✅ NEW IMPORTS (CHAT HISTORY)
+from app.database.chat_database import (
+    create_chat_session,
+    save_message,
+    get_chat_history
+)
 
 router = APIRouter(prefix="/api/v1")
 
@@ -1783,14 +1788,14 @@ def search(query: str):
 
 
 # ============================================================
-# RAG Endpoint (AUTH + PERMISSION)
+# RAG Endpoint (AUTH + PERMISSION + CHAT HISTORY ✅)
 # ============================================================
 
 @router.get("/ask", response_model=RAGResponse, tags=["RAG"])
 def ask_question(
     request: Request,
     query: str,
-    session_id: str = "default",
+    session_id: str = None,   # ✅ CHANGED (was "default")
     user=Depends(get_current_user)
 ):
 
@@ -1812,9 +1817,20 @@ def ask_question(
     try:
 
         user_group_ids = user["group_ids"]
+        user_id = user.get("user_id", "default_user")
 
         # -------------------------------------------------
-        # FIX: resolve departments from groups
+        # SESSION HANDLING (NEW)
+        # -------------------------------------------------
+
+        if not session_id:
+            session_id = create_chat_session(user_id)
+
+        # SAVE USER MESSAGE
+        save_message(session_id, "user", query)
+
+        # -------------------------------------------------
+        # PERMISSIONS
         # -------------------------------------------------
 
         allowed_departments = resolve_departments(user_group_ids)
@@ -1823,7 +1839,7 @@ def ask_question(
         logger.info(f"ALLOWED DEPARTMENTS: {allowed_departments}")
 
         # -------------------------------------------------
-        # Generate RAG Answer
+        # RAG PIPELINE (UNCHANGED)
         # -------------------------------------------------
 
         response = generate_rag_answer(
@@ -1832,6 +1848,16 @@ def ask_question(
             user_group_ids=user_group_ids,
             allowed_departments=allowed_departments
         )
+
+        # -------------------------------------------------
+        # SAVE BOT RESPONSE (NEW)
+        # -------------------------------------------------
+
+        try:
+            answer_text = response.answer if hasattr(response, "answer") else str(response)
+            save_message(session_id, "assistant", answer_text)
+        except Exception as e:
+            logger.warning(f"Failed to save assistant message: {e}")
 
         return response
 
@@ -1843,6 +1869,28 @@ def ask_question(
             status_code=500,
             detail="Internal RAG pipeline error"
         )
+
+
+# ============================================================
+# CHAT HISTORY (NEW)
+# ============================================================
+
+@router.get("/chat/{session_id}", tags=["Chat"])
+def fetch_chat_history(
+    session_id: str,
+    user=Depends(get_current_user)
+):
+
+    try:
+        history = get_chat_history(session_id)
+
+        return {
+            "session_id": session_id,
+            "messages": history
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============================================================
