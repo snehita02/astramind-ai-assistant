@@ -4011,7 +4011,6 @@
 
 
 
-
 import time
 from typing import List
 
@@ -4049,7 +4048,7 @@ def safe_llm_call(messages):
 
 
 # --------------------------------------------------
-# PRIMARY TOPIC (🔥 FIX)
+# PRIMARY TOPIC
 # --------------------------------------------------
 
 def get_primary_topic(history):
@@ -4083,8 +4082,6 @@ def rewrite_query(query: str, history: list):
 
         prompt = f"""
 Rewrite the query for better retrieval.
-
-Use chat history if needed.
 
 Chat:
 {history_text}
@@ -4203,8 +4200,17 @@ def generate_rag_answer(query: str, session_id: str, user_group_ids: list, allow
 
         rewritten_query = rewrite_query(query, history)
 
+        # 🔥 FIX: GET PRIMARY TOPIC
+        primary_topic = get_primary_topic(history)
+
+        # 🔥 FIX: COMBINE QUERY
+        combined_query = f"{primary_topic} {query}"
+
+        logger.info(f"COMBINED QUERY: {combined_query}")
+
+        # 🔥🔥🔥 CRITICAL FIX HERE
         retrieved_chunks = search_text(
-            rewritten_query,
+            combined_query,   # ✅ FIXED
             department=allowed_departments,
             limit=30
         )
@@ -4225,10 +4231,6 @@ def generate_rag_answer(query: str, session_id: str, user_group_ids: list, allow
                 "context_used": [],
                 "session_id": session_id
             }
-
-        # 🔥 FINAL FIX
-        primary_topic = get_primary_topic(history)
-        combined_query = f"{primary_topic} {query}"
 
         reranked = rerank_chunks(combined_query, retrieved_chunks)
 
