@@ -101,6 +101,7 @@ from app.auth.jwt_handler import create_access_token
 from app.auth.auth_dependency import get_current_user
 
 
+
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
