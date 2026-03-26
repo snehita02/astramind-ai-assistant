@@ -4161,28 +4161,91 @@ def calculate_confidence(chunks: List[str]):
 # LLM ANSWER
 # --------------------------------------------------
 
+# def generate_answer_from_llm(query: str, context: str, history):
+
+#     system_prompt = """
+# You are AstraMind.
+
+# STRICT:
+# - Stay on same topic as previous question
+# - Use context only
+# - No hallucination
+# """
+
+#     messages = [{"role": "system", "content": system_prompt}]
+
+#     for msg in history[-6:]:
+#         messages.append(msg)
+
+#     messages.append({
+#         "role": "user",
+#         "content": f"Context:\n{context}\n\nQuestion:\n{query}"
+#     })
+
+#     return safe_llm_call(messages) or "I could not generate a response."
+
+
+
 def generate_answer_from_llm(query: str, context: str, history):
 
-    system_prompt = """
+    # 🔥 Get primary topic again (important!)
+    primary_topic = ""
+    follow_up_words = ["how long", "how many", "what about", "and", "then"]
+
+    for msg in reversed(history):
+        if msg["role"] != "user":
+            continue
+
+        content = msg["content"].lower()
+
+        if not any(f in content for f in follow_up_words):
+            primary_topic = msg["content"]
+            break
+
+    system_prompt = f"""
 You are AstraMind.
 
-STRICT:
-- Stay on same topic as previous question
-- Use context only
-- No hallucination
+STRICT RULES:
+- User is asking a FOLLOW-UP question
+- The topic is: "{primary_topic}"
+
+YOU MUST:
+- Answer ONLY about this topic
+- Ignore other policies in context
+- Do NOT summarize multiple leave types
+- Give a DIRECT answer
+
+Example:
+Q: What is maternity leave?
+Q: How long is it?
+A: 16 weeks
+
+NOT:
+❌ listing multiple leave policies
+❌ general summaries
 """
 
-    messages = [{"role": "system", "content": system_prompt}]
+    messages = [{"role": "system", "content": system_prompt.strip()}]
 
     for msg in history[-6:]:
         messages.append(msg)
 
     messages.append({
         "role": "user",
-        "content": f"Context:\n{context}\n\nQuestion:\n{query}"
+        "content": f"""
+Context:
+{context}
+
+Question:
+{query}
+
+Answer ONLY for: {primary_topic}
+"""
     })
 
-    return safe_llm_call(messages) or "I could not generate a response."
+    answer = safe_llm_call(messages)
+
+    return answer if answer else "I could not generate a response."
 
 
 # --------------------------------------------------
