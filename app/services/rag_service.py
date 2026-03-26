@@ -3855,14 +3855,25 @@ def generate_rag_answer(
         # 5. Vector Search (Department restricted)
         # =====================================================
 
+        # results = search_text(
+        #     query=rewritten_query,
+        #     vector=query_vector,
+        #     top_k=5,
+        #     metadata_filter={
+        #         "department": allowed_departments
+        #     }
+        # )
         results = search_text(
             query=rewritten_query,
             vector=query_vector,
-            top_k=5,
-            metadata_filter={
-                "department": allowed_departments
-            }
+            top_k=5
         )
+
+        # 🔒 Apply department filtering manually
+        results = [
+            r for r in results
+            if r.get("metadata", {}).get("department") in allowed_departments
+        ]
 
         if not results:
             return {
