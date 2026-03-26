@@ -410,61 +410,116 @@
 
 
 
+from sqlalchemy import create_engine, Column, String, JSON
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
 
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import jwt, JWTError
+DATABASE_URL = "sqlite:///./auth.db"
 
-from app.config import SECRET_KEY, ALGORITHM
-from app.database.auth_database import get_user
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False}
+)
+
+SessionLocal = sessionmaker(bind=engine)
+
+Base = declarative_base()
 
 
-security = HTTPBearer()
+# ------------------------------------------------------------
+# User Table
+# ------------------------------------------------------------
+
+class User(Base):
+    __tablename__ = "users"
+
+    user_id = Column(String, primary_key=True, index=True)
+    password_hash = Column(String)
+    group_ids = Column(JSON)
+    role = Column(String, default="user")
 
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+# ------------------------------------------------------------
+# Initialize DB + Create Default Admin
+# ------------------------------------------------------------
 
-    token = credentials.credentials
+def initialize_database():
+    Base.metadata.create_all(bind=engine)
 
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication token missing"
-        )
+    db = SessionLocal()
 
     try:
-        payload = jwt.decode(
-            token,
-            SECRET_KEY,
-            algorithms=[ALGORITHM]
-        )
+        existing_admin = db.query(User).filter(User.user_id == "admin").first()
 
-        user_id = payload.get("user_id")
+        if not existing_admin:
+            print("⚡ Creating default admin user...")
 
-        if user_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token payload"
+            # ✅ FIX: Lazy import to avoid circular dependency
+            from app.auth.password_utils import hash_password
+
+            admin_user = User(
+                user_id="admin",
+                password_hash=hash_password("admin123"),
+                group_ids=[123456, 123457, 123458, 123459],
+                role="admin"
             )
 
-        # 🔥 ALWAYS fetch fresh user from DB
-        user = get_user(user_id)
+            db.add(admin_user)
+            db.commit()
+
+            print("✅ Default admin created")
+
+        else:
+            print("ℹ️ Admin already exists")
+
+    finally:
+        db.close()
+
+
+# ------------------------------------------------------------
+# DB Operations
+# ------------------------------------------------------------
+
+def create_user(user_id: str, password_hash: str, group_ids: list, role: str = "user"):
+
+    db = SessionLocal()
+
+    try:
+        existing = db.query(User).filter(User.user_id == user_id).first()
+
+        if existing:
+            raise ValueError("User already exists")
+
+        user = User(
+            user_id=user_id,
+            password_hash=password_hash,
+            group_ids=group_ids,
+            role=role
+        )
+
+        db.add(user)
+        db.commit()
+
+    finally:
+        db.close()
+
+
+def get_user(user_id: str):
+
+    db = SessionLocal()
+
+    try:
+        user = db.query(User).filter(User.user_id == user_id).first()
 
         if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User not found"
-            )
+            return None
 
-        # ✅ FIX: include role
         return {
-            "user_id": user["user_id"],
-            "group_ids": user["group_ids"],
-            "role": user["role"]   # ⭐ CRITICAL FIX
+            "user_id": user.user_id,
+            "password_hash": user.password_hash,
+            "group_ids": user.group_ids,
+            "role": user.role
         }
 
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication token"
-        )
+    finally:
+        db.close()
