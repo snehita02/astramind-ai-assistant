@@ -3273,6 +3273,46 @@ def calculate_confidence(chunks: List[str]):
 # LLM Answer
 # --------------------------------------------------
 
+# def generate_answer_from_llm(query: str, context: str, history):
+
+#     system_prompt = """
+# You are AstraMind, an enterprise knowledge assistant.
+
+# Rules:
+# 1. Answer using ONLY the provided context.
+# 2. Extract the exact answer if present.
+# 3. Be direct.
+# 4. Do NOT hallucinate or infer outside the context.
+# """
+
+#     history_text = ""
+#     for msg in history:
+#         role = msg["role"]
+#         content = msg["content"]
+#         history_text += f"{role}: {content}\n"
+
+#     user_prompt = f"""
+# Context:
+# {context}
+
+# Question:
+# {query}
+
+# Answer:
+# """
+
+#     response = client.chat.completions.create(
+#         model=LLM_MODEL,
+#         messages=[
+#             {"role": "system", "content": system_prompt.strip()},
+#             {"role": "user", "content": user_prompt.strip()},
+#         ],
+#         temperature=0,
+#     )
+
+#     return response.choices[0].message.content.strip()
+
+
 def generate_answer_from_llm(query: str, context: str, history):
 
     system_prompt = """
@@ -3280,38 +3320,47 @@ You are AstraMind, an enterprise knowledge assistant.
 
 Rules:
 1. Answer using ONLY the provided context.
-2. Extract the exact answer if present.
+2. Use chat history if needed to understand follow-up questions.
 3. Be direct.
-4. Do NOT hallucinate or infer outside the context.
+4. Do NOT hallucinate.
 """
 
-    history_text = ""
-    for msg in history:
-        role = msg["role"]
-        content = msg["content"]
-        history_text += f"{role}: {content}\n"
+    # ✅ FORMAT HISTORY PROPERLY
+    messages = [{"role": "system", "content": system_prompt.strip()}]
 
+    # Limit history (avoid token overflow)
+    recent_history = history[-6:]
+
+    for msg in recent_history:
+        messages.append({
+            "role": msg["role"],
+            "content": msg["content"]
+        })
+
+    # ✅ ADD CURRENT QUESTION WITH CONTEXT
     user_prompt = f"""
 Context:
 {context}
 
 Question:
 {query}
-
-Answer:
 """
+
+    messages.append({
+        "role": "user",
+        "content": user_prompt.strip()
+    })
 
     response = client.chat.completions.create(
         model=LLM_MODEL,
-        messages=[
-            {"role": "system", "content": system_prompt.strip()},
-            {"role": "user", "content": user_prompt.strip()},
-        ],
+        messages=messages,
         temperature=0,
     )
 
     return response.choices[0].message.content.strip()
 
+
+    
 
 # --------------------------------------------------
 # RAG Pipeline (FINAL PRODUCTION VERSION)
