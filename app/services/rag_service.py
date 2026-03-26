@@ -3728,221 +3728,261 @@
 
 
 
+import time
+from typing import List
 
-from app.core.embeddings import generate_embedding
+from openai import OpenAI
+
 from app.core.vector_store import search_text
-from app.core.llm_provider import generate_response
 from app.core.logger import logger
+from app.services.memory_service import memory
+from app.auth.permissions import resolve_departments
 
-from app.database.chat_database import save_message, get_chat_history
+from app.config import (
+    OPENAI_API_KEY,
+    LLM_MODEL,
+    MAX_CONTEXT_CHARS,
+)
 
-from typing import List, Dict
-
-
-# ============================================================
-# 🔹 Query Rewriting (Follow-up Understanding)
-# ============================================================
-
-def rewrite_query(query: str, history: List[Dict]) -> str:
-    """
-    Converts follow-up questions into standalone questions.
-    """
-
-    if not history:
-        return query
-
-    try:
-        history_text = "\n".join([
-            f"{msg['role']}: {msg['content']}"
-            for msg in history[-5:]
-        ])
-
-        prompt = f"""
-You are an AI assistant helping rewrite follow-up questions.
-
-Conversation:
-{history_text}
-
-User follow-up:
-{query}
-
-Rewrite the follow-up into a standalone question.
-Only return the rewritten question.
-"""
-
-        rewritten = generate_response(prompt)
-
-        if rewritten and len(rewritten.strip()) > 5:
-            return rewritten.strip()
-
-        return query
-
-    except Exception as e:
-        logger.error(f"Query rewrite failed: {str(e)}")
-        return query
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 
-# ============================================================
-# 🔹 Context Formatting
-# ============================================================
+# --------------------------------------------------
+# SAFE LLM CALL WRAPPER (🔥 FIX)
+# --------------------------------------------------
 
-def build_context(results):
-    return "\n\n".join([r["text"] for r in results])
-
-
-# ============================================================
-# 🔹 Source Extraction
-# ============================================================
-
-def extract_sources(results):
-    return list(set([
-        r["metadata"].get("source", "unknown")
-        for r in results
-    ]))
-
-
-# ============================================================
-# 🔹 MAIN RAG PIPELINE
-# ============================================================
-
-def generate_rag_answer(
-    query: str,
-    session_id: str,
-    user_group_ids: List[int],
-    allowed_departments: List[str]
-):
+def safe_llm_call(messages):
 
     try:
-
-        # =====================================================
-        # 1. Load Chat History
-        # =====================================================
-
-        history = get_chat_history(session_id)
-
-        # =====================================================
-        # 2. Rewrite Query (Follow-up handling)
-        # =====================================================
-
-        rewritten_query = rewrite_query(query, history)
-
-        # =====================================================
-        # 🔥 3. Topic Anchoring (CRITICAL FIX)
-        # =====================================================
-
-        if history:
-            last_assistant_msgs = [
-                m for m in history if m["role"] == "assistant"
-            ]
-
-            if last_assistant_msgs:
-                last_answer = last_assistant_msgs[-1]["content"]
-
-                # Take a short meaningful chunk
-                topic_hint = last_answer[:200]
-
-                rewritten_query = f"{rewritten_query} about {topic_hint}"
-
-        logger.info(f"Final Query Used: {rewritten_query}")
-
-        # =====================================================
-        # 4. Generate Embedding
-        # =====================================================
-
-        query_vector = generate_embedding(rewritten_query)
-
-        # =====================================================
-        # 5. Vector Search (Department restricted)
-        # =====================================================
-
-        # results = search_text(
-        #     query=rewritten_query,
-        #     vector=query_vector,
-        #     top_k=5,
-        #     metadata_filter={
-        #         "department": allowed_departments
-        #     }
-        # )
-        results = search_text(
-            query=rewritten_query,
-            vector=query_vector,
-            top_k=5
+        response = client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=messages,
+            temperature=0,
         )
 
-        # 🔒 Apply department filtering manually
-        results = [
-            r for r in results
-            if r.get("metadata", {}).get("department") in allowed_departments
-        ]
+        return response.choices[0].message.content.strip()
 
-        if not results:
-            return {
-                "question": query,
-                "answer": "I could not find relevant information in your accessible knowledge base.",
-                "confidence": 0.0,
-                "grounded": False,
-                "sources": [],
-                "evaluation": "No results found",
-                "context_used": [],
-                "session_id": session_id
-            }
+    except Exception as e:
+        logger.error(f"LLM ERROR: {str(e)}")
+        return None
 
-        # =====================================================
-        # 6. Build Context
-        # =====================================================
 
-        context = build_context(results)
-        sources = extract_sources(results)
+# --------------------------------------------------
+# Query Rewriting
+# --------------------------------------------------
 
-        # =====================================================
-        # 7. Generate Answer
-        # =====================================================
+def rewrite_query(query: str, history: list):
+
+    try:
+        recent_history = history[-3:] if history else []
+
+        history_text = "\n".join(
+            [f"{msg['role']}: {msg['content']}" for msg in recent_history]
+        )
 
         prompt = f"""
-You are AstraMind, an enterprise AI assistant.
+Rewrite the user query for better semantic retrieval.
 
-Answer ONLY using the provided context.
-Do NOT hallucinate.
-Be concise and accurate.
+IMPORTANT:
+- If this is a follow-up question, use chat history
+- Keep topic consistent
 
+Chat History:
+{history_text}
+
+User Question:
+{query}
+
+Improved Query:
+"""
+
+        rewritten = safe_llm_call([
+            {"role": "user", "content": prompt}
+        ])
+
+        return rewritten if rewritten else query
+
+    except Exception as e:
+        logger.error(f"Rewrite error: {str(e)}")
+        return query
+
+
+# --------------------------------------------------
+# Department Detection
+# --------------------------------------------------
+
+def detect_query_department(query: str):
+
+    query = query.lower()
+
+    if any(word in query for word in ["leave", "policy", "employee", "benefits"]):
+        return "hr"
+
+    if any(word in query for word in ["expense", "budget", "finance"]):
+        return "finance"
+
+    if any(word in query for word in ["code", "api", "system"]):
+        return "engineering"
+
+    return "general"
+
+
+# --------------------------------------------------
+# Rerank
+# --------------------------------------------------
+
+def rerank_chunks(query: str, chunks: List[dict], top_k: int = 5):
+
+    query_words = set(query.lower().split())
+    scored = []
+
+    for chunk in chunks:
+
+        text = chunk["text"].lower()
+        keyword_score = sum(1 for w in query_words if w in text)
+        semantic_score = chunk.get("score", 0)
+
+        source = chunk.get("source", "")
+
+        if ".pdf" in source.lower():
+            boost = 0.6
+        elif "http" in source.lower() and "github" not in source.lower():
+            boost = 0.4
+        elif "github" in source.lower():
+            boost = -0.3
+        else:
+            boost = 0
+
+        final_score = semantic_score + (keyword_score * 0.05) + boost
+        scored.append((final_score, chunk))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    return [c[1] for c in scored[:top_k]]
+
+
+# --------------------------------------------------
+# Context
+# --------------------------------------------------
+
+def build_context(chunks: List[str]):
+    return "\n\n".join(chunks)
+
+
+def calculate_confidence(chunks: List[str]):
+
+    total_chars = sum(len(c) for c in chunks)
+
+    if total_chars < 50:
+        return 0.2
+    if total_chars < 200:
+        return 0.5
+    if total_chars < 600:
+        return 0.75
+
+    return 0.9
+
+
+# --------------------------------------------------
+# Answer Generation (🔥 FIXED)
+# --------------------------------------------------
+
+def generate_answer_from_llm(query: str, context: str, history):
+
+    system_prompt = """
+You are AstraMind, an enterprise knowledge assistant.
+
+STRICT RULES:
+- Answer ONLY from context
+- Use chat history for follow-ups
+- Stay on same topic
+- Do NOT hallucinate
+"""
+
+    messages = [{"role": "system", "content": system_prompt.strip()}]
+
+    for msg in history[-6:]:
+        messages.append(msg)
+
+    messages.append({
+        "role": "user",
+        "content": f"""
 Context:
 {context}
 
 Question:
 {query}
-
-Answer:
 """
+    })
 
-        answer = generate_response(prompt)
+    answer = safe_llm_call(messages)
 
-        # =====================================================
-        # 8. Save Chat History
-        # =====================================================
+    return answer if answer else "I could not generate a response."
 
-        save_message(session_id, "user", query)
-        save_message(session_id, "assistant", str({
-            "question": query,
-            "answer": answer
-        }))
 
-        # =====================================================
-        # 9. Return Response
-        # =====================================================
+# --------------------------------------------------
+# MAIN RAG
+# --------------------------------------------------
+
+def generate_rag_answer(query: str, session_id: str, user_group_ids: list, allowed_departments=None):
+
+    try:
+
+        if allowed_departments is None:
+            allowed_departments = resolve_departments(user_group_ids)
+
+        history = memory.get_history(session_id)
+
+        rewritten_query = rewrite_query(query, history)
+
+        retrieved_chunks = search_text(
+            rewritten_query,
+            department=allowed_departments,
+            limit=30
+        )
+
+        retrieved_chunks = [
+            c for c in retrieved_chunks
+            if c.get("department") in allowed_departments
+        ]
+
+        if not retrieved_chunks:
+            return {
+                "question": query,
+                "answer": "No relevant data found.",
+                "confidence": 0.0,
+                "grounded": False,
+                "sources": [],
+                "evaluation": "No data",
+                "context_used": [],
+                "session_id": session_id
+            }
+
+        reranked = rerank_chunks(query, retrieved_chunks)
+
+        texts = [c["text"] for c in reranked]
+        sources = list({c["source"] for c in reranked})[:3]
+
+        context = build_context(texts)
+
+        if len(context) > MAX_CONTEXT_CHARS:
+            context = context[:MAX_CONTEXT_CHARS]
+
+        answer = generate_answer_from_llm(query, context, history)
 
         return {
             "question": query,
             "answer": answer,
-            "confidence": 0.9,
+            "confidence": calculate_confidence(texts),
             "grounded": True,
             "sources": sources,
-            "evaluation": "Department-filtered pipeline (retrieval-only access control)",
-            "context_used": [context],
+            "evaluation": "Department-filtered pipeline",
+            "context_used": texts,
             "session_id": session_id
         }
 
     except Exception as e:
-        logger.error(f"RAG pipeline error: {str(e)}")
+        logger.error(f"RAG ERROR: {str(e)}")
 
         return {
             "question": query,
