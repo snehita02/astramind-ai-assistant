@@ -4012,7 +4012,6 @@
 
 
 
-
 import time
 from typing import List
 
@@ -4050,13 +4049,22 @@ def safe_llm_call(messages):
 
 
 # --------------------------------------------------
-# GET LAST USER TOPIC (🔥 NEW)
+# PRIMARY TOPIC (🔥 FIX)
 # --------------------------------------------------
 
-def get_last_user_topic(history):
+def get_primary_topic(history):
+
+    follow_up_words = ["how long", "how many", "what about", "and", "then"]
+
     for msg in reversed(history):
-        if msg["role"] == "user":
+        if msg["role"] != "user":
+            continue
+
+        content = msg["content"].lower()
+
+        if not any(f in content for f in follow_up_words):
             return msg["content"]
+
     return ""
 
 
@@ -4218,9 +4226,9 @@ def generate_rag_answer(query: str, session_id: str, user_group_ids: list, allow
                 "session_id": session_id
             }
 
-        # 🔥 FIX: CONTEXT-AWARE RERANK
-        last_topic = get_last_user_topic(history)
-        combined_query = query + " " + last_topic
+        # 🔥 FINAL FIX
+        primary_topic = get_primary_topic(history)
+        combined_query = f"{primary_topic} {query}"
 
         reranked = rerank_chunks(combined_query, retrieved_chunks)
 
