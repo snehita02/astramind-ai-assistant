@@ -4638,6 +4638,1328 @@
 
 
 
+# import time
+# from typing import List
+
+# from openai import OpenAI
+
+# from app.core.vector_store import search_text
+# from app.core.logger import logger
+# from app.services.memory_service import memory
+
+# # ⭐ STEP 39
+# from app.auth.permissions import resolve_departments
+
+# from app.config import (
+#     OPENAI_API_KEY,
+#     LLM_MODEL,
+#     MAX_CONTEXT_CHARS,
+# )
+
+# client = OpenAI(api_key=OPENAI_API_KEY)
+
+
+# # --------------------------------------------------
+# # SAFE LLM
+# # --------------------------------------------------
+
+# def safe_llm_call(messages):
+#     try:
+#         response = client.chat.completions.create(
+#             model=LLM_MODEL,
+#             messages=messages,
+#             temperature=0,
+#         )
+#         return response.choices[0].message.content.strip()
+#     except Exception as e:
+#         logger.error(f"LLM ERROR: {str(e)}")
+#         return None
+
+
+# # --------------------------------------------------
+# # PRIMARY TOPIC
+# # --------------------------------------------------
+
+# def get_primary_topic(history):
+
+#     follow_up_words = ["how long", "how many", "what about", "and", "then"]
+
+#     for msg in reversed(history):
+#         if msg["role"] != "user":
+#             continue
+
+#         content = msg["content"].lower()
+
+#         if not any(f in content for f in follow_up_words):
+#             return msg["content"]
+
+#     return ""
+
+
+# # --------------------------------------------------
+# # QUERY REWRITE
+# # --------------------------------------------------
+
+# def rewrite_query(query: str, history: list):
+
+#     try:
+#         recent_history = history[-3:] if history else []
+
+#         history_text = "\n".join(
+#             [f"{msg['role']}: {msg['content']}" for msg in recent_history]
+#         )
+
+#         prompt = f"""
+# Rewrite the query for better retrieval.
+
+# Chat:
+# {history_text}
+
+# Query:
+# {query}
+# """
+
+#         rewritten = safe_llm_call([
+#             {"role": "user", "content": prompt}
+#         ])
+
+#         return rewritten if rewritten else query
+
+#     except Exception:
+#         return query
+
+
+# # --------------------------------------------------
+# # RERANK
+# # --------------------------------------------------
+
+# def rerank_chunks(query: str, chunks: List[dict], top_k: int = 5):
+
+#     query_words = set(query.lower().split())
+#     scored = []
+
+#     for chunk in chunks:
+
+#         text = chunk["text"].lower()
+#         keyword_score = sum(1 for w in query_words if w in text)
+#         semantic_score = chunk.get("score", 0)
+
+#         source = chunk.get("source", "")
+
+#         if ".pdf" in source.lower():
+#             boost = 0.6
+#         elif "http" in source.lower() and "github" not in source.lower():
+#             boost = 0.4
+#         elif "github" in source.lower():
+#             boost = -0.3
+#         else:
+#             boost = 0
+
+#         final_score = semantic_score + (keyword_score * 0.05) + boost
+
+#         scored.append((final_score, chunk))
+
+#     scored.sort(key=lambda x: x[0], reverse=True)
+
+#     return [c[1] for c in scored[:top_k]]
+
+
+# # --------------------------------------------------
+# # CONTEXT
+# # --------------------------------------------------
+
+# def build_context(chunks: List[str]):
+#     return "\n\n".join(chunks)
+
+
+# def calculate_confidence(chunks: List[str]):
+
+#     total_chars = sum(len(c) for c in chunks)
+
+#     if total_chars < 50:
+#         return 0.2
+#     if total_chars < 200:
+#         return 0.5
+#     if total_chars < 600:
+#         return 0.75
+
+#     return 0.9
+
+
+# # --------------------------------------------------
+# # LLM ANSWER
+# # --------------------------------------------------
+
+# def generate_answer_from_llm(query: str, context: str, history):
+
+#     primary_topic = get_primary_topic(history)
+
+#     system_prompt = f"""
+# You are AstraMind.
+
+# STRICT:
+# - Follow-up question
+# - Topic: {primary_topic}
+# - Answer ONLY about this
+# - No unrelated policies
+# """
+
+#     messages = [{"role": "system", "content": system_prompt.strip()}]
+
+#     for msg in history[-6:]:
+#         messages.append(msg)
+
+#     messages.append({
+#         "role": "user",
+#         "content": f"Context:\n{context}\n\nQuestion:\n{query}"
+#     })
+
+#     return safe_llm_call(messages) or "I could not generate a response."
+
+
+# # --------------------------------------------------
+# # MAIN RAG (STEP 39 FINAL FIXED)
+# # --------------------------------------------------
+
+# def generate_rag_answer(query: str, session_id: str, user: dict):
+
+#     try:
+
+#         # ✅ FIX — Extract group_ids properly
+#         group_ids = user.get("group_ids", [])
+
+#         # ✅ FIX — Correct input to permissions
+#         allowed_departments = resolve_departments(group_ids)
+
+#         logger.info(f"ROLE: {user.get('role')}")
+#         logger.info(f"GROUP IDS: {group_ids}")
+#         logger.info(f"ALLOWED DEPARTMENTS: {allowed_departments}")
+
+#         history = memory.get_history(session_id)
+
+#         rewritten_query = rewrite_query(query, history)
+
+#         primary_topic = get_primary_topic(history)
+
+#         combined_query = f"{primary_topic} {query}"
+
+#         # 🔍 FILTERED SEARCH
+#         retrieved_chunks = search_text(
+#             combined_query,
+#             department=allowed_departments,
+#             limit=30
+#         )
+
+#         retrieved_chunks = [
+#             c for c in retrieved_chunks
+#             if c.get("department") in allowed_departments
+#         ]
+
+#         if not retrieved_chunks:
+#             return {
+#                 "question": query,
+#                 "answer": "No accessible information found.",
+#                 "confidence": 0.0,
+#                 "grounded": False,
+#                 "sources": [],
+#                 "evaluation": "Access filtered",
+#                 "context_used": [],
+#                 "session_id": session_id
+#             }
+
+#         reranked = rerank_chunks(combined_query, retrieved_chunks)
+
+#         texts = [c["text"] for c in reranked]
+#         sources = list({c["source"] for c in reranked})[:3]
+
+#         context = build_context(texts)
+
+#         if len(context) > MAX_CONTEXT_CHARS:
+#             context = context[:MAX_CONTEXT_CHARS]
+
+#         answer = generate_answer_from_llm(query, context, history)
+
+#         return {
+#             "question": query,
+#             "answer": answer,
+#             "confidence": calculate_confidence(texts),
+#             "grounded": True,
+#             "sources": sources,
+#             "evaluation": "Role-based access enforced",
+#             "context_used": texts,
+#             "session_id": session_id
+#         }
+
+#     except Exception as e:
+#         logger.error(f"RAG ERROR: {str(e)}")
+
+#         return {
+#             "question": query,
+#             "answer": "Something went wrong while processing your request.",
+#             "confidence": 0.0,
+#             "grounded": False,
+#             "sources": [],
+#             "evaluation": "Error",
+#             "context_used": [],
+#             "session_id": session_id
+#         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# import time
+# from typing import List
+
+# from openai import OpenAI
+
+# from app.core.vector_store import search_text
+# from app.core.logger import logger
+# from app.services.memory_service import memory
+# from app.auth.permissions import resolve_departments
+
+# from app.config import (
+#     OPENAI_API_KEY,
+#     LLM_MODEL,
+#     MAX_CONTEXT_CHARS,
+# )
+
+# client = OpenAI(api_key=OPENAI_API_KEY)
+
+
+# # --------------------------------------------------
+# # SAFE LLM
+# # --------------------------------------------------
+
+# def safe_llm_call(messages):
+#     try:
+#         response = client.chat.completions.create(
+#             model=LLM_MODEL,
+#             messages=messages,
+#             temperature=0,
+#         )
+#         return response.choices[0].message.content.strip()
+#     except Exception as e:
+#         logger.error(f"LLM ERROR: {str(e)}")
+#         return None
+
+
+# # --------------------------------------------------
+# # PRIMARY TOPIC
+# # --------------------------------------------------
+
+# def get_primary_topic(history):
+
+#     follow_up_words = ["how long", "how many", "what about", "and", "then"]
+
+#     for msg in reversed(history):
+#         if msg["role"] != "user":
+#             continue
+
+#         content = msg["content"].lower()
+
+#         if not any(f in content for f in follow_up_words):
+#             return msg["content"]
+
+#     return ""
+
+
+# # --------------------------------------------------
+# # QUERY REWRITE
+# # --------------------------------------------------
+
+# def rewrite_query(query: str, history: list):
+
+#     try:
+#         recent_history = history[-3:] if history else []
+
+#         history_text = "\n".join(
+#             [f"{msg['role']}: {msg['content']}" for msg in recent_history]
+#         )
+
+#         prompt = f"""
+# Rewrite the query for better retrieval.
+
+# Chat:
+# {history_text}
+
+# Query:
+# {query}
+# """
+
+#         rewritten = safe_llm_call([
+#             {"role": "user", "content": prompt}
+#         ])
+
+#         return rewritten if rewritten else query
+
+#     except Exception:
+#         return query
+
+
+# # --------------------------------------------------
+# # 🔥 CRITICAL FIX: CLEAN CHUNKS
+# # --------------------------------------------------
+
+# def clean_chunks(raw_chunks):
+
+#     cleaned = []
+
+#     for c in raw_chunks:
+
+#         # Case 1: already dict
+#         if isinstance(c, dict):
+#             cleaned.append(c)
+#             continue
+
+#         # Case 2: list → flatten
+#         if isinstance(c, list):
+#             for item in c:
+#                 if isinstance(item, dict):
+#                     cleaned.append(item)
+#             continue
+
+#         # Case 3: ignore garbage
+#         continue
+
+#     return cleaned
+
+
+# # --------------------------------------------------
+# # RERANK
+# # --------------------------------------------------
+
+# def rerank_chunks(query: str, chunks: List[dict], top_k: int = 5):
+
+#     query_words = set(query.lower().split())
+#     scored = []
+
+#     for chunk in chunks:
+
+#         text = chunk.get("text", "").lower()
+#         keyword_score = sum(1 for w in query_words if w in text)
+#         semantic_score = chunk.get("score", 0)
+
+#         source = chunk.get("source", "")
+
+#         if ".pdf" in source.lower():
+#             boost = 0.6
+#         elif "http" in source.lower() and "github" not in source.lower():
+#             boost = 0.4
+#         elif "github" in source.lower():
+#             boost = -0.3
+#         else:
+#             boost = 0
+
+#         final_score = semantic_score + (keyword_score * 0.05) + boost
+
+#         scored.append((final_score, chunk))
+
+#     scored.sort(key=lambda x: x[0], reverse=True)
+
+#     return [c[1] for c in scored[:top_k]]
+
+
+# # --------------------------------------------------
+# # CONTEXT
+# # --------------------------------------------------
+
+# def build_context(chunks: List[str]):
+#     return "\n\n".join(chunks)
+
+
+# def calculate_confidence(chunks: List[str]):
+
+#     total_chars = sum(len(c) for c in chunks)
+
+#     if total_chars < 50:
+#         return 0.2
+#     if total_chars < 200:
+#         return 0.5
+#     if total_chars < 600:
+#         return 0.75
+
+#     return 0.9
+
+
+# # --------------------------------------------------
+# # LLM ANSWER
+# # --------------------------------------------------
+
+# def generate_answer_from_llm(query: str, context: str, history):
+
+#     primary_topic = get_primary_topic(history)
+
+#     system_prompt = f"""
+# You are AstraMind.
+
+# STRICT:
+# - Topic: "{primary_topic}"
+# - Answer ONLY about this
+# """
+
+#     messages = [{"role": "system", "content": system_prompt.strip()}]
+
+#     for msg in history[-6:]:
+#         messages.append(msg)
+
+#     messages.append({
+#         "role": "user",
+#         "content": f"""
+# Context:
+# {context}
+
+# Question:
+# {query}
+# """
+#     })
+
+#     return safe_llm_call(messages) or "I could not generate a response."
+
+
+# # --------------------------------------------------
+# # ✅ FINAL MAIN RAG (FIXED)
+# # --------------------------------------------------
+
+# def generate_rag_answer(query: str, session_id: str, user):
+
+#     try:
+
+#         group_ids = user.get("group_ids", [])
+
+#         allowed_departments = resolve_departments(group_ids)
+
+#         history = memory.get_history(session_id)
+
+#         primary_topic = get_primary_topic(history)
+#         combined_query = f"{primary_topic} {query}"
+
+#         raw_chunks = search_text(
+#             combined_query,
+#             department=allowed_departments,
+#             limit=30
+#         )
+
+#         # 🔥 FIX APPLIED HERE
+#         cleaned_chunks = clean_chunks(raw_chunks)
+
+#         filtered_chunks = [
+#             c for c in cleaned_chunks
+#             if c.get("department") in allowed_departments
+#         ]
+
+#         if not filtered_chunks:
+#             return {
+#                 "question": query,
+#                 "answer": "No relevant data found.",
+#                 "confidence": 0.0,
+#                 "grounded": False,
+#                 "sources": [],
+#                 "evaluation": "No data",
+#                 "context_used": [],
+#                 "session_id": session_id
+#             }
+
+#         reranked = rerank_chunks(combined_query, filtered_chunks)
+
+#         texts = [c.get("text", "") for c in reranked]
+#         sources = list({c.get("source", "unknown") for c in reranked})[:3]
+
+#         context = build_context(texts)
+
+#         if len(context) > MAX_CONTEXT_CHARS:
+#             context = context[:MAX_CONTEXT_CHARS]
+
+#         answer = generate_answer_from_llm(query, context, history)
+
+#         return {
+#             "question": query,
+#             "answer": answer,
+#             "confidence": calculate_confidence(texts),
+#             "grounded": True,
+#             "sources": sources,
+#             "evaluation": "Department-filtered pipeline",
+#             "context_used": texts,
+#             "session_id": session_id
+#         }
+
+#     except Exception as e:
+#         logger.error(f"RAG failed: {str(e)}")
+
+#         return {
+#             "question": query,
+#             "answer": "Internal error occurred.",
+#             "confidence": 0.0,
+#             "grounded": False,
+#             "sources": [],
+#             "evaluation": "Error",
+#             "context_used": [],
+#             "session_id": session_id
+#         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# import time
+# from typing import List
+
+# from openai import OpenAI
+
+# from app.core.vector_store import search_text
+# from app.core.logger import logger
+# from app.services.memory_service import memory
+# from app.auth.permissions import resolve_departments
+
+# from app.config import (
+#     OPENAI_API_KEY,
+#     LLM_MODEL,
+#     MAX_CONTEXT_CHARS,
+# )
+
+# client = OpenAI(api_key=OPENAI_API_KEY)
+
+
+# # --------------------------------------------------
+# # 🔥 HELPER: NORMALIZE USER
+# # --------------------------------------------------
+
+# def normalize_user(user):
+#     if isinstance(user, list):
+#         if len(user) > 0 and isinstance(user[0], dict):
+#             return user[0]
+#         return {}
+
+#     if isinstance(user, dict):
+#         return user
+
+#     return {}
+
+
+# # --------------------------------------------------
+# # 🔥 HELPER: FLATTEN LIST
+# # --------------------------------------------------
+
+# def flatten_list(data):
+#     flat = []
+#     for item in data:
+#         if isinstance(item, list):
+#             flat.extend(item)
+#         else:
+#             flat.append(item)
+#     return flat
+
+
+# # --------------------------------------------------
+# # SAFE LLM
+# # --------------------------------------------------
+
+# def safe_llm_call(messages):
+#     try:
+#         response = client.chat.completions.create(
+#             model=LLM_MODEL,
+#             messages=messages,
+#             temperature=0,
+#         )
+#         return response.choices[0].message.content.strip()
+#     except Exception as e:
+#         logger.error(f"LLM ERROR: {str(e)}")
+#         return None
+
+
+# # --------------------------------------------------
+# # PRIMARY TOPIC
+# # --------------------------------------------------
+
+# def get_primary_topic(history):
+
+#     follow_up_words = ["how long", "how many", "what about", "and", "then"]
+
+#     for msg in reversed(history):
+#         if msg["role"] != "user":
+#             continue
+
+#         content = msg["content"].lower()
+
+#         if not any(f in content for f in follow_up_words):
+#             return msg["content"]
+
+#     return ""
+
+
+# # --------------------------------------------------
+# # QUERY REWRITE
+# # --------------------------------------------------
+
+# def rewrite_query(query: str, history: list):
+
+#     try:
+#         recent_history = history[-3:] if history else []
+
+#         history_text = "\n".join(
+#             [f"{msg['role']}: {msg['content']}" for msg in recent_history]
+#         )
+
+#         prompt = f"""
+# Rewrite the query for better retrieval.
+
+# Chat:
+# {history_text}
+
+# Query:
+# {query}
+# """
+
+#         rewritten = safe_llm_call([
+#             {"role": "user", "content": prompt}
+#         ])
+
+#         return rewritten if rewritten else query
+
+#     except Exception:
+#         return query
+
+
+# # --------------------------------------------------
+# # 🔥 CLEAN CHUNKS (FIXED PROPERLY)
+# # --------------------------------------------------
+
+# def clean_chunks(raw_chunks):
+
+#     cleaned = []
+
+#     def extract(item):
+#         if isinstance(item, dict):
+#             cleaned.append(item)
+
+#         elif isinstance(item, list):
+#             for sub in item:
+#                 extract(sub)  # 🔥 RECURSIVE FIX
+
+#         elif isinstance(item, tuple):
+#             cleaned.append({
+#                 "text": str(item[0]),
+#                 "metadata": item[1] if len(item) > 1 and isinstance(item[1], dict) else {},
+#                 "score": item[2] if len(item) > 2 else 0
+#             })
+
+#         else:
+#             cleaned.append({
+#                 "text": str(item),
+#                 "metadata": {},
+#                 "score": 0
+#             })
+
+#     for c in raw_chunks:
+#         extract(c)
+
+#     return cleaned
+
+
+# # --------------------------------------------------
+# # RERANK
+# # --------------------------------------------------
+
+# def rerank_chunks(query: str, chunks: List[dict], top_k: int = 5):
+
+#     query_words = set(query.lower().split())
+#     scored = []
+
+#     for chunk in chunks:
+
+#         if not isinstance(chunk, dict):
+#             continue
+
+#         text = chunk.get("text", "").lower()
+#         keyword_score = sum(1 for w in query_words if w in text)
+#         semantic_score = chunk.get("score", 0)
+
+#         source = chunk.get("source", "")
+
+#         if ".pdf" in source.lower():
+#             boost = 0.6
+#         elif "http" in source.lower() and "github" not in source.lower():
+#             boost = 0.4
+#         elif "github" in source.lower():
+#             boost = -0.3
+#         else:
+#             boost = 0
+
+#         final_score = semantic_score + (keyword_score * 0.05) + boost
+
+#         scored.append((final_score, chunk))
+
+#     scored.sort(key=lambda x: x[0], reverse=True)
+
+#     return [c[1] for c in scored[:top_k]]
+
+
+# # --------------------------------------------------
+# # CONTEXT
+# # --------------------------------------------------
+
+# def build_context(chunks: List[str]):
+#     return "\n\n".join(chunks)
+
+
+# def calculate_confidence(chunks: List[str]):
+
+#     total_chars = sum(len(c) for c in chunks)
+
+#     if total_chars < 50:
+#         return 0.2
+#     if total_chars < 200:
+#         return 0.5
+#     if total_chars < 600:
+#         return 0.75
+
+#     return 0.9
+
+
+# # --------------------------------------------------
+# # LLM ANSWER
+# # --------------------------------------------------
+
+# def generate_answer_from_llm(query: str, context: str, history):
+
+#     primary_topic = get_primary_topic(history)
+
+#     system_prompt = f"""
+# You are AstraMind.
+
+# STRICT:
+# - Topic: "{primary_topic}"
+# - Answer ONLY about this
+# """
+
+#     messages = [{"role": "system", "content": system_prompt.strip()}]
+
+#     for msg in history[-6:]:
+#         messages.append(msg)
+
+#     messages.append({
+#         "role": "user",
+#         "content": f"""
+# Context:
+# {context}
+
+# Question:
+# {query}
+# """
+#     })
+
+#     return safe_llm_call(messages) or "I could not generate a response."
+
+
+# # --------------------------------------------------
+# # ✅ FINAL MAIN RAG (FULLY FIXED)
+# # --------------------------------------------------
+
+# def generate_rag_answer(
+#     query: str,
+#     session_id: str,
+#     user,
+#     allowed_departments=None
+# ):
+
+#     try:
+
+#         # 🔥 FIX 1: USER
+#         user = normalize_user(user)
+#         group_ids = user.get("group_ids", [])
+
+#         # 🔥 FIX 2: DEPARTMENTS
+#         if allowed_departments is None:
+#             allowed_departments = resolve_departments(group_ids)
+
+#         if isinstance(allowed_departments, list):
+#             allowed_departments = flatten_list(allowed_departments)
+
+#         # 🔥 MEMORY
+#         history = memory.get_history(session_id)
+
+#         # 🔥 SEARCH
+#         raw_chunks = search_text(
+#             query,
+#             department=allowed_departments,
+#             limit=30
+#         )
+
+#         # 🔥 DEBUG: log raw structure to identify nesting issues
+#         logger.debug(f"RAW CHUNKS TYPE: {type(raw_chunks)}, SAMPLE: {str(raw_chunks[:2]) if raw_chunks else '[]'}")
+
+#         # 🔥 CLEAN — double pass to handle deeply nested lists
+#         cleaned_chunks = clean_chunks(raw_chunks)
+#         cleaned_chunks = clean_chunks(cleaned_chunks)  # 🔥 FIX: second pass eliminates any remaining nested lists
+
+#         # 🔥 FILTER (SAFE)
+#         filtered_chunks = []
+
+#         for c in cleaned_chunks:
+
+#             if not isinstance(c, dict):
+#                 continue
+
+#             metadata = c.get("metadata", {})
+#             dept = metadata.get("department") or c.get("department")
+
+#             if not allowed_departments or dept in allowed_departments:
+#                 filtered_chunks.append(c)
+
+#         if not filtered_chunks:
+#             return {
+#                 "question": query,
+#                 "answer": "No relevant data found.",
+#                 "confidence": 0.0,
+#                 "grounded": False,
+#                 "sources": [],
+#                 "evaluation": "No data",
+#                 "context_used": [],
+#                 "session_id": session_id
+#             }
+
+#         # 🔥 RERANK
+#         reranked = rerank_chunks(query, filtered_chunks)
+
+#         texts = [c.get("text", "") for c in reranked]
+
+#         context = build_context(texts)
+
+#         if len(context) > MAX_CONTEXT_CHARS:
+#             context = context[:MAX_CONTEXT_CHARS]
+
+#         # 🔥 LLM
+#         answer = generate_answer_from_llm(query, context, history)
+
+#         return {
+#             "question": query,
+#             "answer": answer,
+#             "confidence": calculate_confidence(texts),
+#             "grounded": True,
+#             "sources": [],
+#             "evaluation": "Department-filtered pipeline",
+#             "context_used": texts,
+#             "session_id": session_id
+#         }
+
+#     except Exception as e:
+#         logger.error(f"RAG failed: {str(e)}")
+
+#         return {
+#             "question": query,
+#             "answer": "Internal error occurred.",
+#             "confidence": 0.0,
+#             "grounded": False,
+#             "sources": [],
+#             "evaluation": "Error",
+#             "context_used": [],
+#             "session_id": session_id
+#         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# import time
+# from typing import List
+
+# from openai import OpenAI
+
+# from app.core.vector_store import search_text
+# from app.core.logger import logger
+# from app.services.memory_service import memory
+# from app.auth.permissions import resolve_departments
+
+# from app.config import (
+#     OPENAI_API_KEY,
+#     LLM_MODEL,
+#     MAX_CONTEXT_CHARS,
+# )
+
+# client = OpenAI(api_key=OPENAI_API_KEY)
+
+
+# # --------------------------------------------------
+# # HELPER: NORMALIZE USER
+# # --------------------------------------------------
+
+# def normalize_user(user):
+#     if isinstance(user, list):
+#         if len(user) > 0 and isinstance(user[0], dict):
+#             return user[0]
+#         return {}
+#     if isinstance(user, dict):
+#         return user
+#     return {}
+
+
+# # --------------------------------------------------
+# # HELPER: FLATTEN LIST
+# # --------------------------------------------------
+
+# def flatten_list(data):
+#     flat = []
+#     for item in data:
+#         if isinstance(item, list):
+#             flat.extend(item)
+#         else:
+#             flat.append(item)
+#     return flat
+
+
+# # --------------------------------------------------
+# # SAFE LLM
+# # --------------------------------------------------
+
+# def safe_llm_call(messages):
+#     try:
+#         response = client.chat.completions.create(
+#             model=LLM_MODEL,
+#             messages=messages,
+#             temperature=0,
+#         )
+#         return response.choices[0].message.content.strip()
+#     except Exception as e:
+#         logger.error(f"LLM ERROR: {str(e)}")
+#         return None
+
+
+# # --------------------------------------------------
+# # PRIMARY TOPIC
+# # --------------------------------------------------
+
+# def get_primary_topic(history):
+
+#     follow_up_words = ["how long", "how many", "what about", "and", "then"]
+
+#     for msg in reversed(history):
+#         if msg["role"] != "user":
+#             continue
+#         content = msg["content"].lower()
+#         if not any(f in content for f in follow_up_words):
+#             return msg["content"]
+
+#     return ""
+
+
+# # --------------------------------------------------
+# # QUERY REWRITE
+# # --------------------------------------------------
+
+# def rewrite_query(query: str, history: list):
+
+#     try:
+#         recent_history = history[-3:] if history else []
+#         history_text = "\n".join(
+#             [f"{msg['role']}: {msg['content']}" for msg in recent_history]
+#         )
+#         prompt = f"""
+# Rewrite the query for better retrieval.
+
+# Chat:
+# {history_text}
+
+# Query:
+# {query}
+# """
+#         rewritten = safe_llm_call([{"role": "user", "content": prompt}])
+#         return rewritten if rewritten else query
+
+#     except Exception:
+#         return query
+
+
+# # --------------------------------------------------
+# # CLEAN CHUNKS
+# # --------------------------------------------------
+
+# def clean_chunks(raw_chunks):
+
+#     cleaned = []
+
+#     def extract(item):
+#         if isinstance(item, dict):
+#             cleaned.append(item)
+#         elif isinstance(item, list):
+#             for sub in item:
+#                 extract(sub)
+#         elif isinstance(item, tuple):
+#             cleaned.append({
+#                 "text": str(item[0]),
+#                 "metadata": item[1] if len(item) > 1 and isinstance(item[1], dict) else {},
+#                 "score": item[2] if len(item) > 2 else 0
+#             })
+#         else:
+#             cleaned.append({
+#                 "text": str(item),
+#                 "metadata": {},
+#                 "score": 0
+#             })
+
+#     for c in raw_chunks:
+#         extract(c)
+
+#     return cleaned
+
+
+# # --------------------------------------------------
+# # RERANK
+# # --------------------------------------------------
+
+# def rerank_chunks(query: str, chunks: List[dict], top_k: int = 5):
+
+#     query_words = set(query.lower().split())
+#     scored = []
+
+#     for chunk in chunks:
+
+#         if not isinstance(chunk, dict):
+#             continue
+
+#         text = chunk.get("text", "").lower()
+#         keyword_score = sum(1 for w in query_words if w in text)
+#         semantic_score = chunk.get("score", 0)
+#         source = chunk.get("source", "")
+
+#         if ".pdf" in source.lower():
+#             boost = 0.6
+#         elif "http" in source.lower() and "github" not in source.lower():
+#             boost = 0.4
+#         elif "github" in source.lower():
+#             boost = -0.3
+#         else:
+#             boost = 0
+
+#         final_score = semantic_score + (keyword_score * 0.05) + boost
+#         scored.append((final_score, chunk))
+
+#     scored.sort(key=lambda x: x[0], reverse=True)
+#     return [c[1] for c in scored[:top_k]]
+
+
+# # --------------------------------------------------
+# # CONTEXT
+# # --------------------------------------------------
+
+# def build_context(chunks: List[str]):
+#     return "\n\n".join(chunks)
+
+
+# def calculate_confidence(chunks: List[str]):
+#     total_chars = sum(len(c) for c in chunks)
+#     if total_chars < 50:
+#         return 0.2
+#     if total_chars < 200:
+#         return 0.5
+#     if total_chars < 600:
+#         return 0.75
+#     return 0.9
+
+
+# # --------------------------------------------------
+# # LLM ANSWER
+# # --------------------------------------------------
+
+# def generate_answer_from_llm(query: str, context: str, history):
+
+#     primary_topic = get_primary_topic(history)
+
+#     system_prompt = f"""
+# You are AstraMind.
+
+# STRICT:
+# - Topic: "{primary_topic}"
+# - Answer ONLY about this
+# """
+
+#     messages = [{"role": "system", "content": system_prompt.strip()}]
+
+#     for msg in history[-6:]:
+#         messages.append(msg)
+
+#     messages.append({
+#         "role": "user",
+#         "content": f"""
+# Context:
+# {context}
+
+# Question:
+# {query}
+# """
+#     })
+
+#     return safe_llm_call(messages) or "I could not generate a response."
+
+
+# # --------------------------------------------------
+# # MAIN RAG
+# # --------------------------------------------------
+
+# def generate_rag_answer(
+#     query: str,
+#     session_id: str,
+#     user,
+#     allowed_departments=None
+# ):
+
+#     try:
+
+#         # normalize user
+#         user = normalize_user(user)
+
+#         # 🔥 FIX: pass full user dict to resolve_departments (not just group_ids)
+#         if allowed_departments is None:
+#             allowed_departments = resolve_departments(user)
+
+#         if isinstance(allowed_departments, list):
+#             allowed_departments = flatten_list(allowed_departments)
+
+#         # MEMORY
+#         history = memory.get_history(session_id)
+
+#         # SEARCH
+#         raw_chunks = search_text(
+#             query,
+#             department=allowed_departments,
+#             limit=30
+#         )
+
+#         logger.debug(f"RAW CHUNKS SAMPLE: {str(raw_chunks[:2]) if raw_chunks else '[]'}")
+
+#         # CLEAN — double pass to handle any deep nesting
+#         cleaned_chunks = clean_chunks(raw_chunks)
+#         cleaned_chunks = clean_chunks(cleaned_chunks)
+
+#         # FILTER
+#         filtered_chunks = []
+
+#         for c in cleaned_chunks:
+
+#             if not isinstance(c, dict):
+#                 continue
+
+#             metadata = c.get("metadata", {})
+#             dept = metadata.get("department") or c.get("department")
+
+#             if not allowed_departments or dept in allowed_departments:
+#                 filtered_chunks.append(c)
+
+#         if not filtered_chunks:
+#             return {
+#                 "question": query,
+#                 "answer": "No relevant data found.",
+#                 "confidence": 0.0,
+#                 "grounded": False,
+#                 "sources": [],
+#                 "evaluation": "No data",
+#                 "context_used": [],
+#                 "session_id": session_id
+#             }
+
+#         # RERANK
+#         reranked = rerank_chunks(query, filtered_chunks)
+#         texts = [c.get("text", "") for c in reranked]
+#         context = build_context(texts)
+
+#         if len(context) > MAX_CONTEXT_CHARS:
+#             context = context[:MAX_CONTEXT_CHARS]
+
+#         # LLM
+#         answer = generate_answer_from_llm(query, context, history)
+
+#         return {
+#             "question": query,
+#             "answer": answer,
+#             "confidence": calculate_confidence(texts),
+#             "grounded": True,
+#             "sources": [],
+#             "evaluation": "Department-filtered pipeline",
+#             "context_used": texts,
+#             "session_id": session_id
+#         }
+
+#     except Exception as e:
+#         logger.error(f"RAG failed: {str(e)}")
+
+#         return {
+#             "question": query,
+#             "answer": "Internal error occurred.",
+#             "confidence": 0.0,
+#             "grounded": False,
+#             "sources": [],
+#             "evaluation": "Error",
+#             "context_used": [],
+#             "session_id": session_id
+#         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 import time
 from typing import List
 
@@ -4646,8 +5968,6 @@ from openai import OpenAI
 from app.core.vector_store import search_text
 from app.core.logger import logger
 from app.services.memory_service import memory
-
-# ⭐ STEP 39
 from app.auth.permissions import resolve_departments
 
 from app.config import (
@@ -4657,6 +5977,34 @@ from app.config import (
 )
 
 client = OpenAI(api_key=OPENAI_API_KEY)
+
+
+# --------------------------------------------------
+# HELPER: NORMALIZE USER
+# --------------------------------------------------
+
+def normalize_user(user):
+    if isinstance(user, list):
+        if len(user) > 0 and isinstance(user[0], dict):
+            return user[0]
+        return {}
+    if isinstance(user, dict):
+        return user
+    return {}
+
+
+# --------------------------------------------------
+# HELPER: FLATTEN LIST
+# --------------------------------------------------
+
+def flatten_list(data):
+    flat = []
+    for item in data:
+        if isinstance(item, list):
+            flat.extend(item)
+        else:
+            flat.append(item)
+    return flat
 
 
 # --------------------------------------------------
@@ -4687,9 +6035,7 @@ def get_primary_topic(history):
     for msg in reversed(history):
         if msg["role"] != "user":
             continue
-
         content = msg["content"].lower()
-
         if not any(f in content for f in follow_up_words):
             return msg["content"]
 
@@ -4704,11 +6050,9 @@ def rewrite_query(query: str, history: list):
 
     try:
         recent_history = history[-3:] if history else []
-
         history_text = "\n".join(
             [f"{msg['role']}: {msg['content']}" for msg in recent_history]
         )
-
         prompt = f"""
 Rewrite the query for better retrieval.
 
@@ -4718,15 +6062,44 @@ Chat:
 Query:
 {query}
 """
-
-        rewritten = safe_llm_call([
-            {"role": "user", "content": prompt}
-        ])
-
+        rewritten = safe_llm_call([{"role": "user", "content": prompt}])
         return rewritten if rewritten else query
 
     except Exception:
         return query
+
+
+# --------------------------------------------------
+# CLEAN CHUNKS
+# --------------------------------------------------
+
+def clean_chunks(raw_chunks):
+
+    cleaned = []
+
+    def extract(item):
+        if isinstance(item, dict):
+            cleaned.append(item)
+        elif isinstance(item, list):
+            for sub in item:
+                extract(sub)
+        elif isinstance(item, tuple):
+            cleaned.append({
+                "text": str(item[0]),
+                "metadata": item[1] if len(item) > 1 and isinstance(item[1], dict) else {},
+                "score": item[2] if len(item) > 2 else 0
+            })
+        else:
+            cleaned.append({
+                "text": str(item),
+                "metadata": {},
+                "score": 0
+            })
+
+    for c in raw_chunks:
+        extract(c)
+
+    return cleaned
 
 
 # --------------------------------------------------
@@ -4740,10 +6113,12 @@ def rerank_chunks(query: str, chunks: List[dict], top_k: int = 5):
 
     for chunk in chunks:
 
-        text = chunk["text"].lower()
+        if not isinstance(chunk, dict):
+            continue
+
+        text = chunk.get("text", "").lower()
         keyword_score = sum(1 for w in query_words if w in text)
         semantic_score = chunk.get("score", 0)
-
         source = chunk.get("source", "")
 
         if ".pdf" in source.lower():
@@ -4756,11 +6131,9 @@ def rerank_chunks(query: str, chunks: List[dict], top_k: int = 5):
             boost = 0
 
         final_score = semantic_score + (keyword_score * 0.05) + boost
-
         scored.append((final_score, chunk))
 
     scored.sort(key=lambda x: x[0], reverse=True)
-
     return [c[1] for c in scored[:top_k]]
 
 
@@ -4773,16 +6146,13 @@ def build_context(chunks: List[str]):
 
 
 def calculate_confidence(chunks: List[str]):
-
     total_chars = sum(len(c) for c in chunks)
-
     if total_chars < 50:
         return 0.2
     if total_chars < 200:
         return 0.5
     if total_chars < 600:
         return 0.75
-
     return 0.9
 
 
@@ -4798,10 +6168,8 @@ def generate_answer_from_llm(query: str, context: str, history):
 You are AstraMind.
 
 STRICT:
-- Follow-up question
-- Topic: {primary_topic}
+- Topic: "{primary_topic}"
 - Answer ONLY about this
-- No unrelated policies
 """
 
     messages = [{"role": "system", "content": system_prompt.strip()}]
@@ -4811,72 +6179,90 @@ STRICT:
 
     messages.append({
         "role": "user",
-        "content": f"Context:\n{context}\n\nQuestion:\n{query}"
+        "content": f"""
+Context:
+{context}
+
+Question:
+{query}
+"""
     })
 
     return safe_llm_call(messages) or "I could not generate a response."
 
 
 # --------------------------------------------------
-# MAIN RAG (STEP 39 FINAL FIXED)
+# MAIN RAG
 # --------------------------------------------------
 
-def generate_rag_answer(query: str, session_id: str, user: dict):
+def generate_rag_answer(
+    query: str,
+    session_id: str,
+    user,
+    allowed_departments=None
+):
 
     try:
 
-        # ✅ FIX — Extract group_ids properly
-        group_ids = user.get("group_ids", [])
+        # normalize user
+        user = normalize_user(user)
 
-        # ✅ FIX — Correct input to permissions
-        allowed_departments = resolve_departments(group_ids)
+        # 🔥 FIX: pass full user dict to resolve_departments (not just group_ids)
+        if allowed_departments is None:
+            allowed_departments = resolve_departments(user)
 
-        logger.info(f"ROLE: {user.get('role')}")
-        logger.info(f"GROUP IDS: {group_ids}")
-        logger.info(f"ALLOWED DEPARTMENTS: {allowed_departments}")
+        if isinstance(allowed_departments, list):
+            allowed_departments = flatten_list(allowed_departments)
 
+        # MEMORY
         history = memory.get_history(session_id)
 
-        rewritten_query = rewrite_query(query, history)
-
-        primary_topic = get_primary_topic(history)
-
-        combined_query = f"{primary_topic} {query}"
-
-        # 🔍 FILTERED SEARCH
-        retrieved_chunks = search_text(
-            combined_query,
+        # SEARCH
+        raw_chunks = search_text(
+            query,
             department=allowed_departments,
             limit=30
         )
 
-        retrieved_chunks = [
-            c for c in retrieved_chunks
-            if c.get("department") in allowed_departments
-        ]
+        # CLEAN — double pass to handle any deep nesting
+        cleaned_chunks = clean_chunks(raw_chunks)
+        cleaned_chunks = clean_chunks(cleaned_chunks)
 
-        if not retrieved_chunks:
+        # FILTER
+        filtered_chunks = []
+
+        for c in cleaned_chunks:
+
+            if not isinstance(c, dict):
+                continue
+
+            metadata = c.get("metadata", {})
+            dept = metadata.get("department") or c.get("department")
+
+            if not allowed_departments or dept in allowed_departments:
+                filtered_chunks.append(c)
+
+        if not filtered_chunks:
             return {
                 "question": query,
-                "answer": "No accessible information found.",
+                "answer": "No relevant data found.",
                 "confidence": 0.0,
                 "grounded": False,
                 "sources": [],
-                "evaluation": "Access filtered",
+                "evaluation": "No data",
                 "context_used": [],
                 "session_id": session_id
             }
 
-        reranked = rerank_chunks(combined_query, retrieved_chunks)
-
-        texts = [c["text"] for c in reranked]
-        sources = list({c["source"] for c in reranked})[:3]
-
+        # RERANK
+        reranked = rerank_chunks(query, filtered_chunks)
+        texts = [c.get("text", "") for c in reranked]
         context = build_context(texts)
 
         if len(context) > MAX_CONTEXT_CHARS:
             context = context[:MAX_CONTEXT_CHARS]
 
+        # LLM
         answer = generate_answer_from_llm(query, context, history)
 
         return {
@@ -4884,18 +6270,18 @@ def generate_rag_answer(query: str, session_id: str, user: dict):
             "answer": answer,
             "confidence": calculate_confidence(texts),
             "grounded": True,
-            "sources": sources,
-            "evaluation": "Role-based access enforced",
+            "sources": [],
+            "evaluation": "Department-filtered pipeline",
             "context_used": texts,
             "session_id": session_id
         }
 
     except Exception as e:
-        logger.error(f"RAG ERROR: {str(e)}")
+        logger.error(f"RAG failed: {str(e)}")
 
         return {
             "question": query,
-            "answer": "Something went wrong while processing your request.",
+            "answer": "Internal error occurred.",
             "confidence": 0.0,
             "grounded": False,
             "sources": [],
