@@ -166,13 +166,135 @@
 
 
 
+# from datetime import datetime, timedelta
+# from jose import jwt
+# from passlib.context import CryptContext
+
+# from app.config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
+
+# # 🔥 DB IMPORTS (SOURCE OF TRUTH)
+# from app.database.auth_database import create_user, get_user
+
+# pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+# # --------------------------------------------------
+# # PASSWORD HASHING
+# # --------------------------------------------------
+
+# def verify_password(plain_password, hashed_password):
+#     return pwd_context.verify(plain_password, hashed_password)
+
+
+# def get_password_hash(password: str):
+#     return pwd_context.hash(password)
+
+
+# # --------------------------------------------------
+# # AUTHENTICATE USER (DB BASED)
+# # --------------------------------------------------
+
+# def authenticate_user(user_id: str, password: str):
+
+#     user = get_user(user_id)
+
+#     if not user:
+#         return None
+
+#     if not verify_password(password, user["password_hash"]):
+#         return None
+
+#     return user
+
+
+# # --------------------------------------------------
+# # REGISTER USER (USED BY ADMIN API)
+# # --------------------------------------------------
+
+# def register_user(user_id: str, password: str, group_ids: list, role: str = "user"):
+
+#     existing_user = get_user(user_id)
+
+#     if existing_user:
+#         raise ValueError("User already exists")
+
+#     password_hash = get_password_hash(password)
+
+#     create_user(
+#         user_id=user_id,
+#         password_hash=password_hash,
+#         group_ids=group_ids,
+#         role=role
+#     )
+
+
+# # --------------------------------------------------
+# # CREATE JWT TOKEN (WITH ROLE)
+# # --------------------------------------------------
+
+# def create_access_token(data: dict, expires_delta: timedelta = None):
+
+#     to_encode = data.copy()
+
+#     expire = datetime.utcnow() + (
+#         expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+#     )
+
+#     to_encode.update({
+#         "exp": expire
+#     })
+
+#     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+# # --------------------------------------------------
+# # LOGIN HELPER
+# # --------------------------------------------------
+
+# def login_user(user_id: str, password: str):
+
+#     user = authenticate_user(user_id, password)
+
+#     if not user:
+#         return None
+
+#     token_data = {
+#         "user_id": user["user_id"],
+#         "group_ids": user.get("group_ids", []),
+#         "role": user.get("role", "user")
+#     }
+
+#     access_token = create_access_token(token_data)
+
+#     return {
+#         "access_token": access_token,
+#         "token_type": "bearer"
+#     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 from datetime import datetime, timedelta
 from jose import jwt
 from passlib.context import CryptContext
 
 from app.config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 
-# 🔥 DB IMPORTS (SOURCE OF TRUTH)
+# ✅ DB SOURCE OF TRUTH
 from app.database.auth_database import create_user, get_user
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -191,7 +313,7 @@ def get_password_hash(password: str):
 
 
 # --------------------------------------------------
-# AUTHENTICATE USER (DB BASED)
+# AUTHENTICATE USER (DB ONLY — NO FAKE DB)
 # --------------------------------------------------
 
 def authenticate_user(user_id: str, password: str):
@@ -208,7 +330,7 @@ def authenticate_user(user_id: str, password: str):
 
 
 # --------------------------------------------------
-# REGISTER USER (USED BY ADMIN API)
+# REGISTER USER (USED BY ADMIN ENDPOINT)
 # --------------------------------------------------
 
 def register_user(user_id: str, password: str, group_ids: list, role: str = "user"):
@@ -229,7 +351,7 @@ def register_user(user_id: str, password: str, group_ids: list, role: str = "use
 
 
 # --------------------------------------------------
-# CREATE JWT TOKEN (WITH ROLE)
+# CREATE JWT TOKEN
 # --------------------------------------------------
 
 def create_access_token(data: dict, expires_delta: timedelta = None):
