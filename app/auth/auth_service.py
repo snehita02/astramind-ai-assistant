@@ -218,12 +218,93 @@
 
 
 
+# from app.database.auth_database import create_user, get_user
+# from app.auth.password_utils import hash_password, verify_password
+
+
+# # ------------------------------------------------------------
+# # Register User (FIXED)
+# # ------------------------------------------------------------
+
+# def register_user(user_id: str, password: str, group_ids: list, role: str = "user"):
+
+#     existing_user = get_user(user_id)
+
+#     if existing_user:
+#         raise ValueError("User already exists")
+
+#     # ✅ FIX: ALWAYS HASH PASSWORD
+#     password_hash = hash_password(password)
+
+#     create_user(
+#         user_id=user_id,
+#         password_hash=password_hash,
+#         group_ids=group_ids,
+#         role=role
+#     )
+
+
+# # ------------------------------------------------------------
+# # Authenticate User (LOGIN)
+# # ------------------------------------------------------------
+
+# def authenticate_user(user_id: str, password: str):
+
+#     user = get_user(user_id)
+
+#     if not user:
+#         return None
+
+#     # ✅ FIX: USE VERIFY FUNCTION (NOT DIRECT COMPARE)
+#     if not verify_password(password, user["password_hash"]):
+#         return None
+
+#     return user
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+from passlib.context import CryptContext
 from app.database.auth_database import create_user, get_user
-from app.auth.password_utils import hash_password, verify_password
+
+# ------------------------------------------------------------
+# PASSWORD HASHING SETUP
+# ------------------------------------------------------------
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 # ------------------------------------------------------------
-# Register User (FIXED)
+# HASH PASSWORD
+# ------------------------------------------------------------
+
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
+
+
+# ------------------------------------------------------------
+# VERIFY PASSWORD
+# ------------------------------------------------------------
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+# ------------------------------------------------------------
+# REGISTER USER
 # ------------------------------------------------------------
 
 def register_user(user_id: str, password: str, group_ids: list, role: str = "user"):
@@ -233,19 +314,18 @@ def register_user(user_id: str, password: str, group_ids: list, role: str = "use
     if existing_user:
         raise ValueError("User already exists")
 
-    # ✅ FIX: ALWAYS HASH PASSWORD
-    password_hash = hash_password(password)
+    hashed_password = get_password_hash(password)
 
     create_user(
         user_id=user_id,
-        password_hash=password_hash,
+        password_hash=hashed_password,
         group_ids=group_ids,
         role=role
     )
 
 
 # ------------------------------------------------------------
-# Authenticate User (LOGIN)
+# AUTHENTICATE USER
 # ------------------------------------------------------------
 
 def authenticate_user(user_id: str, password: str):
@@ -255,7 +335,6 @@ def authenticate_user(user_id: str, password: str):
     if not user:
         return None
 
-    # ✅ FIX: USE VERIFY FUNCTION (NOT DIRECT COMPARE)
     if not verify_password(password, user["password_hash"]):
         return None
 
