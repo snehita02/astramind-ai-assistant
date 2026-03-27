@@ -1993,6 +1993,144 @@
 
 
 
+
+
+
+# from fastapi import APIRouter, HTTPException, Request, Depends
+
+# from app.core.llm_provider import generate_response
+# from app.core.embeddings import generate_embedding
+# from app.core.vector_store import create_collection, add_text, search_text
+# from app.core.logger import logger
+
+# from app.services.document_service import ingest_text_file
+# from app.services.rag_service import generate_rag_answer
+# from app.services.tools.tool_registry import tool_registry
+# from app.services.ingestion_service import ingest_pdf
+# from app.services.url_ingestion_service import ingest_url
+# from app.services.repo_ingestion_service import ingest_repo
+
+# from app.auth.auth_dependency import get_current_user
+
+# from app.config import MAX_QUERY_LENGTH
+# from app.schemas.response_models import RAGResponse, StandardResponse
+
+# from app.database.chat_database import (
+#     create_chat_session,
+#     save_message,
+#     get_chat_history
+# )
+
+# router = APIRouter(prefix="/api/v1")
+
+
+# # ============================================================
+# # System Health
+# # ============================================================
+
+# @router.get("/health", response_model=StandardResponse, tags=["System"])
+# def health_check():
+
+#     return StandardResponse(
+#         success=True,
+#         message="Service is healthy",
+#         data=None
+#     )
+
+
+# # ============================================================
+# # RAG Endpoint (UPDATED FOR STEP 39)
+# # ============================================================
+
+# @router.get("/ask", response_model=RAGResponse, tags=["RAG"])
+# def ask_question(
+#     request: Request,
+#     query: str,
+#     session_id: str = None,
+#     user=Depends(get_current_user)
+# ):
+
+#     if not query.strip():
+#         raise HTTPException(status_code=400, detail="Query cannot be empty.")
+
+#     if len(query) > MAX_QUERY_LENGTH:
+#         raise HTTPException(
+#             status_code=400,
+#             detail="Query exceeds maximum allowed length."
+#         )
+
+#     if user is None:
+#         raise HTTPException(
+#             status_code=401,
+#             detail="Authentication required"
+#         )
+
+#     try:
+
+#         user_id = user.get("user_id", "default_user")
+
+#         # -------------------------------------------------
+#         # SESSION
+#         # -------------------------------------------------
+
+#         if not session_id:
+#             session_id = create_chat_session(user_id)
+
+#         save_message(session_id, "user", query)
+
+#         # -------------------------------------------------
+#         # 🔥 STEP 39 CHANGE — PASS FULL USER
+#         # -------------------------------------------------
+
+#         response = generate_rag_answer(
+#             query=query,
+#             session_id=session_id,
+#             user=user   # ⭐ FULL USER PASSED
+#         )
+
+#         # -------------------------------------------------
+#         # SAVE BOT RESPONSE
+#         # -------------------------------------------------
+
+#         try:
+#             answer_text = response["answer"]
+#             save_message(session_id, "assistant", answer_text)
+#         except Exception as e:
+#             logger.warning(f"Save error: {e}")
+
+#         return response
+
+#     except Exception as e:
+
+#         logger.error(f"RAG pipeline failed: {str(e)}")
+
+#         raise HTTPException(
+#             status_code=500,
+#             detail="Internal RAG pipeline error"
+#         )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 from fastapi import APIRouter, HTTPException, Request, Depends
 
 from app.core.llm_provider import generate_response
@@ -2008,10 +2146,12 @@ from app.services.url_ingestion_service import ingest_url
 from app.services.repo_ingestion_service import ingest_repo
 
 from app.auth.auth_dependency import get_current_user
+from app.auth.permissions import resolve_departments  # ✅ STEP 39
 
 from app.config import MAX_QUERY_LENGTH
 from app.schemas.response_models import RAGResponse, StandardResponse
 
+# ✅ CHAT HISTORY (STEP 36)
 from app.database.chat_database import (
     create_chat_session,
     save_message,
@@ -2027,7 +2167,6 @@ router = APIRouter(prefix="/api/v1")
 
 @router.get("/health", response_model=StandardResponse, tags=["System"])
 def health_check():
-
     return StandardResponse(
         success=True,
         message="Service is healthy",
@@ -2036,7 +2175,70 @@ def health_check():
 
 
 # ============================================================
-# RAG Endpoint (UPDATED FOR STEP 39)
+# LLM Tests
+# ============================================================
+
+@router.get("/test-llm", tags=["System"])
+def test_llm():
+    answer = generate_response(
+        "Explain what a vector database is in simple terms."
+    )
+    return {"response": answer}
+
+
+@router.get("/test-embedding", tags=["System"])
+def test_embedding():
+    vector = generate_embedding(
+        "This is a test sentence for AstraMind."
+    )
+    return {"vector_length": len(vector)}
+
+
+# ============================================================
+# Vector Store
+# ============================================================
+
+@router.get("/init-collection", tags=["Vector Store"])
+def init_collection():
+    create_collection()
+    return {"status": "Collection created successfully"}
+
+
+@router.get("/add-sample", tags=["Vector Store"])
+def add_sample():
+    add_text(
+        text="AstraMind is an enterprise AI assistant.",
+        doc_id=1,
+        metadata={
+            "department": "general",
+            "source": "sample",
+            "type": "sample"
+        }
+    )
+
+    add_text(
+        text="Vector databases store embeddings for similarity search.",
+        doc_id=2,
+        metadata={
+            "department": "general",
+            "source": "sample",
+            "type": "sample"
+        }
+    )
+
+    return {"status": "Sample data added"}
+
+
+@router.get("/search", tags=["Vector Store"])
+def search(query: str):
+    if not query.strip():
+        raise HTTPException(status_code=400, detail="Query cannot be empty.")
+    results = search_text(query)
+    return {"results": results}
+
+
+# ============================================================
+# RAG Endpoint (STEP 36 + 39)
 # ============================================================
 
 @router.get("/ask", response_model=RAGResponse, tags=["RAG"])
@@ -2051,44 +2253,33 @@ def ask_question(
         raise HTTPException(status_code=400, detail="Query cannot be empty.")
 
     if len(query) > MAX_QUERY_LENGTH:
-        raise HTTPException(
-            status_code=400,
-            detail="Query exceeds maximum allowed length."
-        )
+        raise HTTPException(status_code=400, detail="Query too long")
 
     if user is None:
-        raise HTTPException(
-            status_code=401,
-            detail="Authentication required"
-        )
+        raise HTTPException(status_code=401, detail="Authentication required")
 
     try:
+        user_id = user["user_id"]
+        group_ids = user["group_ids"]
 
-        user_id = user.get("user_id", "default_user")
-
-        # -------------------------------------------------
-        # SESSION
-        # -------------------------------------------------
-
+        # ---------------- SESSION ----------------
         if not session_id:
             session_id = create_chat_session(user_id)
 
         save_message(session_id, "user", query)
 
-        # -------------------------------------------------
-        # 🔥 STEP 39 CHANGE — PASS FULL USER
-        # -------------------------------------------------
+        # ---------------- PERMISSIONS ----------------
+        allowed_departments = resolve_departments(group_ids)
 
+        # ---------------- RAG ----------------
         response = generate_rag_answer(
             query=query,
             session_id=session_id,
-            user=user   # ⭐ FULL USER PASSED
+            user=user,   # ✅ STEP 39 FULL USER
+            allowed_departments=allowed_departments
         )
 
-        # -------------------------------------------------
-        # SAVE BOT RESPONSE
-        # -------------------------------------------------
-
+        # ---------------- SAVE BOT ----------------
         try:
             answer_text = response["answer"]
             save_message(session_id, "assistant", answer_text)
@@ -2098,10 +2289,76 @@ def ask_question(
         return response
 
     except Exception as e:
+        logger.error(f"RAG failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="RAG error")
 
-        logger.error(f"RAG pipeline failed: {str(e)}")
 
-        raise HTTPException(
-            status_code=500,
-            detail="Internal RAG pipeline error"
-        )
+# ============================================================
+# CHAT HISTORY (STEP 36 RESTORED)
+# ============================================================
+
+@router.get("/chat/{session_id}", tags=["Chat"])
+def fetch_chat_history(
+    session_id: str,
+    user=Depends(get_current_user)
+):
+    try:
+        history = get_chat_history(session_id)
+
+        return {
+            "session_id": session_id,
+            "messages": history
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# Tools
+# ============================================================
+
+@router.get("/calculate", tags=["Tools"])
+def calculate(expression: str):
+    if not expression.strip():
+        raise HTTPException(status_code=400, detail="Empty expression")
+
+    tool = tool_registry.get_tool("calculator")
+    result = tool.run(expression)
+
+    return {
+        "expression": expression,
+        "result": result
+    }
+
+
+# ============================================================
+# ADMIN INGESTION (NO BREAK — STEP 40 READY)
+# ============================================================
+
+@router.get("/admin/ingest-pdf", tags=["Admin"])
+def admin_ingest_pdf(
+    file_path: str,
+    department: str = "general",
+    user=Depends(get_current_user)
+):
+    return ingest_pdf(file_path=file_path, department=department)
+
+
+@router.get("/admin/ingest-url", tags=["Admin"])
+def admin_ingest_url(
+    url: str,
+    department: str = "general",
+    user=Depends(get_current_user)
+):
+    return ingest_url(url=url, department=department)
+
+
+@router.get("/admin/ingest-repo", tags=["Admin"])
+def admin_ingest_repo(
+    repo_url: str,
+    department: str = "general",
+    user=Depends(get_current_user)
+):
+    return ingest_repo(repo_url=repo_url, department=department)
+    
