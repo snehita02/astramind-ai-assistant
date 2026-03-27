@@ -162,110 +162,16 @@
 
 
 
-# from passlib.context import CryptContext
-
-# from app.database.auth_database import create_user, get_user
-
-
-# pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
-# # ------------------------------------------------------------
-# # Authenticate User
-# # ------------------------------------------------------------
-
-# def authenticate_user(user_id: str, password: str):
-
-#     user = get_user(user_id)
-
-#     if not user:
-#         return None
-
-#     if not pwd_context.verify(password, user["password_hash"]):
-#         return None
-
-#     return user
-
-
-# # ------------------------------------------------------------
-# # Register User (REQUIRED FOR ADMIN API)
-# # ------------------------------------------------------------
-
-# def register_user(user_id: str, password: str, group_ids: list, role: str = "user"):
-
-#     existing_user = get_user(user_id)
-
-#     if existing_user:
-#         raise ValueError("User already exists")
-
-#     password_hash = pwd_context.hash(password)
-
-#     create_user(
-#         user_id=user_id,
-#         password_hash=password_hash,
-#         group_ids=group_ids,
-#         role=role
-#     )
-
-
-
-
-
-
-
-
-
-
-
 from passlib.context import CryptContext
+
 from app.database.auth_database import create_user, get_user
 
-# ------------------------------------------------------------
-# PASSWORD HASHING SETUP
-# ------------------------------------------------------------
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 # ------------------------------------------------------------
-# HASH PASSWORD
-# ------------------------------------------------------------
-
-def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
-
-
-# ------------------------------------------------------------
-# VERIFY PASSWORD
-# ------------------------------------------------------------
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
-
-
-# ------------------------------------------------------------
-# REGISTER USER (DB ONLY)
-# ------------------------------------------------------------
-
-def register_user(user_id: str, password: str, group_ids: list, role: str = "user"):
-
-    existing_user = get_user(user_id)
-
-    if existing_user:
-        raise ValueError("User already exists")
-
-    hashed_password = get_password_hash(password)
-
-    create_user(
-        user_id=user_id,
-        password_hash=hashed_password,
-        group_ids=group_ids,
-        role=role
-    )
-
-
-# ------------------------------------------------------------
-# AUTHENTICATE USER (DB ONLY)
+# Authenticate User
 # ------------------------------------------------------------
 
 def authenticate_user(user_id: str, password: str):
@@ -275,7 +181,34 @@ def authenticate_user(user_id: str, password: str):
     if not user:
         return None
 
-    if not verify_password(password, user["password_hash"]):
+    if not pwd_context.verify(password, user["password_hash"]):
         return None
 
     return user
+
+
+# ------------------------------------------------------------
+# Register User (REQUIRED FOR ADMIN API)
+# ------------------------------------------------------------
+
+def register_user(user_id: str, password: str, group_ids: list, role: str = "user"):
+
+    existing_user = get_user(user_id)
+
+    if existing_user:
+        raise ValueError("User already exists")
+
+    password_hash = pwd_context.hash(password)
+
+    create_user(
+        user_id=user_id,
+        password_hash=password_hash,
+        group_ids=group_ids,
+        role=role
+    )
+
+
+
+
+
+
