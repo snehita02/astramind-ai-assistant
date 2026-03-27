@@ -161,18 +161,34 @@
 
 
 
-
+from datetime import datetime, timedelta
+from jose import jwt
 from passlib.context import CryptContext
 
-from app.database.auth_database import create_user, get_user
+from app.config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
+
+# 🔥 DB IMPORTS (REAL SOURCE OF TRUTH)
+from app.database.auth_database import get_user, create_user
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
-# ------------------------------------------------------------
-# Authenticate User
-# ------------------------------------------------------------
+# --------------------------------------------------
+# Password Hashing
+# --------------------------------------------------
+
+def get_password_hash(password: str):
+    return pwd_context.hash(password)
+
+
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+# --------------------------------------------------
+# Authenticate User (🔥 DB BASED)
+# --------------------------------------------------
 
 def authenticate_user(user_id: str, password: str):
 
@@ -181,15 +197,15 @@ def authenticate_user(user_id: str, password: str):
     if not user:
         return None
 
-    if not pwd_context.verify(password, user["password_hash"]):
+    if not verify_password(password, user["password_hash"]):
         return None
 
     return user
 
 
-# ------------------------------------------------------------
-# Register User (REQUIRED FOR ADMIN API)
-# ------------------------------------------------------------
+# --------------------------------------------------
+# Register User (🔥 DB BASED)
+# --------------------------------------------------
 
 def register_user(user_id: str, password: str, group_ids: list, role: str = "user"):
 
@@ -198,7 +214,7 @@ def register_user(user_id: str, password: str, group_ids: list, role: str = "use
     if existing_user:
         raise ValueError("User already exists")
 
-    password_hash = pwd_context.hash(password)
+    password_hash = get_password_hash(password)
 
     create_user(
         user_id=user_id,
@@ -208,7 +224,45 @@ def register_user(user_id: str, password: str, group_ids: list, role: str = "use
     )
 
 
+# --------------------------------------------------
+# Create JWT Token
+# --------------------------------------------------
+
+def create_access_token(data: dict, expires_delta: timedelta = None):
+
+    to_encode = data.copy()
+
+    expire = datetime.utcnow() + (
+        expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
+
+    to_encode.update({
+        "exp": expire
+    })
+
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
+# --------------------------------------------------
+# Login Helper
+# --------------------------------------------------
 
+def login_user(user_id: str, password: str):
 
+    user = authenticate_user(user_id, password)
+
+    if not user:
+        return None
+
+    token_data = {
+        "user_id": user["user_id"],
+        "group_ids": user.get("group_ids", []),
+        "role": user.get("role", "user")
+    }
+
+    access_token = create_access_token(token_data)
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer"
+    }
