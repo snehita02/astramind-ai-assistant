@@ -410,9 +410,146 @@
 
 
 
+# from sqlalchemy import create_engine, Column, String, JSON
+# from sqlalchemy.ext.declarative import declarative_base
+# from sqlalchemy.orm import sessionmaker
+
+# DATABASE_URL = "sqlite:///./auth.db"
+
+# engine = create_engine(
+#     DATABASE_URL,
+#     connect_args={"check_same_thread": False}
+# )
+
+# SessionLocal = sessionmaker(bind=engine)
+
+# Base = declarative_base()
+
+
+# # ------------------------------------------------------------
+# # User Table
+# # ------------------------------------------------------------
+
+# class User(Base):
+#     __tablename__ = "users"
+
+#     user_id = Column(String, primary_key=True, index=True)
+#     password_hash = Column(String)
+#     group_ids = Column(JSON)
+#     role = Column(String, default="user")
+
+
+# # ------------------------------------------------------------
+# # Initialize DB + Create Default Admin
+# # ------------------------------------------------------------
+
+# def initialize_database():
+#     Base.metadata.create_all(bind=engine)
+
+#     db = SessionLocal()
+
+#     try:
+#         existing_admin = db.query(User).filter(User.user_id == "admin").first()
+
+#         if not existing_admin:
+#             print("⚡ Creating default admin user...")
+
+#             # ✅ FIX: Lazy import to avoid circular dependency
+#             from app.auth.password_utils import hash_password
+
+#             admin_user = User(
+#                 user_id="admin",
+#                 password_hash=hash_password("admin123"),
+#                 group_ids=[123456, 123457, 123458, 123459],
+#                 role="admin"
+#             )
+
+#             db.add(admin_user)
+#             db.commit()
+
+#             print("✅ Default admin created")
+
+#         else:
+#             print("ℹ️ Admin already exists")
+
+#     finally:
+#         db.close()
+
+
+# # ------------------------------------------------------------
+# # DB Operations
+# # ------------------------------------------------------------
+
+# def create_user(user_id: str, password_hash: str, group_ids: list, role: str = "user"):
+
+#     db = SessionLocal()
+
+#     try:
+#         existing = db.query(User).filter(User.user_id == user_id).first()
+
+#         if existing:
+#             raise ValueError("User already exists")
+
+#         user = User(
+#             user_id=user_id,
+#             password_hash=password_hash,
+#             group_ids=group_ids,
+#             role=role
+#         )
+
+#         db.add(user)
+#         db.commit()
+
+#     finally:
+#         db.close()
+
+
+# def get_user(user_id: str):
+
+#     db = SessionLocal()
+
+#     try:
+#         user = db.query(User).filter(User.user_id == user_id).first()
+
+#         if not user:
+#             return None
+
+#         return {
+#             "user_id": user.user_id,
+#             "password_hash": user.password_hash,
+#             "group_ids": user.group_ids,
+#             "role": user.role
+#         }
+
+#     finally:
+#         db.close()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 from sqlalchemy import create_engine, Column, String, JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+
+# ------------------------------------------------------------
+# DB CONFIG
+# ------------------------------------------------------------
 
 DATABASE_URL = "sqlite:///./auth.db"
 
@@ -427,7 +564,7 @@ Base = declarative_base()
 
 
 # ------------------------------------------------------------
-# User Table
+# USER MODEL
 # ------------------------------------------------------------
 
 class User(Base):
@@ -436,11 +573,11 @@ class User(Base):
     user_id = Column(String, primary_key=True, index=True)
     password_hash = Column(String)
     group_ids = Column(JSON)
-    role = Column(String, default="user")
+    role = Column(String, default="user")   # ✅ Step 38
 
 
 # ------------------------------------------------------------
-# Initialize DB + Create Default Admin
+# DB INITIALIZATION + AUTO SEED USERS
 # ------------------------------------------------------------
 
 def initialize_database():
@@ -448,78 +585,82 @@ def initialize_database():
 
     db = SessionLocal()
 
-    try:
-        existing_admin = db.query(User).filter(User.user_id == "admin").first()
+    # 🔥 IMPORT HERE (avoids circular import)
+    from app.auth.auth_service import get_password_hash
 
-        if not existing_admin:
-            print("⚡ Creating default admin user...")
+    # --------------------------------------------------------
+    # CREATE ADMIN IF NOT EXISTS
+    # --------------------------------------------------------
+    admin = db.query(User).filter(User.user_id == "admin").first()
 
-            # ✅ FIX: Lazy import to avoid circular dependency
-            from app.auth.password_utils import hash_password
+    if not admin:
+        admin_user = User(
+            user_id="admin",
+            password_hash=get_password_hash("admin123"),
+            group_ids=[123456, 123457, 123458, 123459],
+            role="admin"
+        )
+        db.add(admin_user)
+        db.commit()
 
-            admin_user = User(
-                user_id="admin",
-                password_hash=hash_password("admin123"),
-                group_ids=[123456, 123457, 123458, 123459],
-                role="admin"
-            )
+    # --------------------------------------------------------
+    # CREATE DEFAULT HR USER
+    # --------------------------------------------------------
+    hr_user = db.query(User).filter(User.user_id == "hr_user1").first()
 
-            db.add(admin_user)
-            db.commit()
+    if not hr_user:
+        user = User(
+            user_id="hr_user1",
+            password_hash=get_password_hash("hr@1"),
+            group_ids=[123457],
+            role="user"
+        )
+        db.add(user)
+        db.commit()
 
-            print("✅ Default admin created")
-
-        else:
-            print("ℹ️ Admin already exists")
-
-    finally:
-        db.close()
+    db.close()
 
 
 # ------------------------------------------------------------
-# DB Operations
+# DB OPERATIONS
 # ------------------------------------------------------------
 
 def create_user(user_id: str, password_hash: str, group_ids: list, role: str = "user"):
 
     db = SessionLocal()
 
-    try:
-        existing = db.query(User).filter(User.user_id == user_id).first()
+    existing_user = db.query(User).filter(User.user_id == user_id).first()
 
-        if existing:
-            raise ValueError("User already exists")
-
-        user = User(
-            user_id=user_id,
-            password_hash=password_hash,
-            group_ids=group_ids,
-            role=role
-        )
-
-        db.add(user)
-        db.commit()
-
-    finally:
+    if existing_user:
         db.close()
+        raise ValueError("User already exists")
+
+    user = User(
+        user_id=user_id,
+        password_hash=password_hash,
+        group_ids=group_ids,
+        role=role
+    )
+
+    db.add(user)
+    db.commit()
+    db.close()
 
 
 def get_user(user_id: str):
 
     db = SessionLocal()
 
-    try:
-        user = db.query(User).filter(User.user_id == user_id).first()
+    user = db.query(User).filter(User.user_id == user_id).first()
 
-        if not user:
-            return None
+    db.close()
 
-        return {
-            "user_id": user.user_id,
-            "password_hash": user.password_hash,
-            "group_ids": user.group_ids,
-            "role": user.role
-        }
+    if not user:
+        return None
 
-    finally:
-        db.close()
+    return {
+        "user_id": user.user_id,
+        "password_hash": user.password_hash,
+        "group_ids": user.group_ids,
+        "role": user.role
+    }
