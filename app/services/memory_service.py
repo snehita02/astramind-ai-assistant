@@ -25,6 +25,16 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
 from typing import Dict, List
 
 class ConversationMemory:
@@ -58,3 +68,52 @@ class ConversationMemory:
 
 
 memory = ConversationMemory()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# from typing import Dict, List
+# from app.database.chat_database import save_message, get_chat_history
+
+
+# class ConversationMemory:
+
+#     def __init__(self, max_history: int = 6):
+#         self.max_history = max_history
+
+#     def add_message(self, session_id: str, role: str, content: str):
+#         # 🔥 FIX: persist to DB instead of in-memory dict
+#         save_message(session_id, role, content)
+
+#     def get_history(self, session_id: str) -> List[Dict[str, str]]:
+#         # 🔥 FIX: load from DB so history survives across requests/processes
+#         try:
+#             rows = get_chat_history(session_id)
+
+#             # get_chat_history returns list of dicts with "role" and "content"
+#             history = [
+#                 {"role": r["role"], "content": r["content"]}
+#                 for r in rows
+#                 if "role" in r and "content" in r
+#             ]
+
+#             # return only the last max_history messages
+#             return history[-self.max_history:]
+
+#         except Exception:
+#             return []
+
+
+# memory = ConversationMemory()
