@@ -7256,6 +7256,330 @@
 
 
 
+# import time
+# from typing import List
+
+# from openai import OpenAI
+
+# from app.core.vector_store import search_text
+# from app.core.logger import logger
+# from app.services.memory_service import memory
+# from app.auth.permissions import resolve_departments
+
+# from app.config import (
+#     OPENAI_API_KEY,
+#     LLM_MODEL,
+#     MAX_CONTEXT_CHARS,
+# )
+
+# client = OpenAI(api_key=OPENAI_API_KEY)
+
+
+# # --------------------------------------------------
+# # SAFE LLM
+# # --------------------------------------------------
+
+# def safe_llm_call(messages):
+#     try:
+#         response = client.chat.completions.create(
+#             model=LLM_MODEL,
+#             messages=messages,
+#             temperature=0,
+#         )
+#         return response.choices[0].message.content.strip()
+#     except Exception as e:
+#         logger.error(f"LLM ERROR: {str(e)}")
+#         return None
+
+
+# # --------------------------------------------------
+# # PRIMARY TOPIC
+# # --------------------------------------------------
+
+# def get_primary_topic(history):
+
+#     follow_up_words = ["how long", "how many", "what about", "and", "then"]
+
+#     for msg in reversed(history):
+#         if msg["role"] != "user":
+#             continue
+
+#         content = msg["content"].lower()
+
+#         if not any(f in content for f in follow_up_words):
+#             return msg["content"]
+
+#     return ""
+
+
+# # --------------------------------------------------
+# # QUERY REWRITE (STEP 39 FIX)
+# # --------------------------------------------------
+
+# def rewrite_query(query: str, history: list):
+
+#     try:
+#         recent_history = history[-3:] if history else []
+
+#         history_text = "\n".join(
+#             [f"{msg['role']}: {msg['content']}" for msg in recent_history]
+#         )
+
+#         prompt = f"""
+# Rewrite the query for better retrieval.
+# Make it standalone and clear.
+
+# Chat:
+# {history_text}
+
+# Query:
+# {query}
+# """
+
+#         rewritten = safe_llm_call([
+#             {"role": "user", "content": prompt}
+#         ])
+
+#         return rewritten if rewritten else query
+
+#     except Exception:
+#         return query
+
+
+# # --------------------------------------------------
+# # CLEAN CHUNKS (CRITICAL FIX)
+# # --------------------------------------------------
+
+# def clean_chunks(raw_chunks):
+
+#     cleaned = []
+
+#     if not raw_chunks:
+#         return cleaned
+
+#     if isinstance(raw_chunks, list):
+#         for item in raw_chunks:
+#             if isinstance(item, dict):
+#                 cleaned.append(item)
+#             elif isinstance(item, list):
+#                 for sub in item:
+#                     if isinstance(sub, dict):
+#                         cleaned.append(sub)
+
+#     elif isinstance(raw_chunks, dict):
+#         cleaned.append(raw_chunks)
+
+#     return cleaned
+
+
+# # --------------------------------------------------
+# # RERANK
+# # --------------------------------------------------
+
+# def rerank_chunks(query: str, chunks: List[dict], top_k: int = 5):
+
+#     query_words = set(query.lower().split())
+#     scored = []
+
+#     for chunk in chunks:
+
+#         text = chunk.get("text", "").lower()
+#         keyword_score = sum(1 for w in query_words if w in text)
+#         semantic_score = chunk.get("score", 0)
+
+#         source = chunk.get("source", "")
+
+#         if ".pdf" in source.lower():
+#             boost = 0.6
+#         elif "http" in source.lower() and "github" not in source.lower():
+#             boost = 0.4
+#         elif "github" in source.lower():
+#             boost = -0.3
+#         else:
+#             boost = 0
+
+#         final_score = semantic_score + (keyword_score * 0.05) + boost
+
+#         scored.append((final_score, chunk))
+
+#     scored.sort(key=lambda x: x[0], reverse=True)
+
+#     return [c[1] for c in scored[:top_k]]
+
+
+# # --------------------------------------------------
+# # CONTEXT
+# # --------------------------------------------------
+
+# def build_context(chunks: List[str]):
+#     return "\n\n".join(chunks)
+
+
+# def calculate_confidence(chunks: List[str]):
+
+#     total_chars = sum(len(c) for c in chunks)
+
+#     if total_chars < 50:
+#         return 0.2
+#     if total_chars < 200:
+#         return 0.5
+#     if total_chars < 600:
+#         return 0.75
+
+#     return 0.9
+
+
+# # --------------------------------------------------
+# # LLM ANSWER — FIXED: inject primary topic into prompt
+# # --------------------------------------------------
+
+# def generate_answer_from_llm(query: str, context: str, history):
+
+#     primary_topic = get_primary_topic(history)
+
+#     system_prompt = f"""
+# You are AstraMind.
+
+# STRICT RULES:
+# - ONLY answer from provided context
+# - If context is irrelevant → say "No relevant data found"
+# - DO NOT guess
+# - DO NOT use outside knowledge
+
+# FOLLOW-UP HANDLING:
+# - Primary topic: "{primary_topic}"
+# - If the question is vague (e.g., "how many days", "how long")
+#   → interpret it using the primary topic
+# """
+
+#     messages = [{"role": "system", "content": system_prompt.strip()}]
+
+#     for msg in history[-6:]:
+#         messages.append(msg)
+
+#     messages.append({
+#         "role": "user",
+#         "content": f"""
+# Context:
+# {context}
+
+# Question:
+# {query}
+
+# If needed, interpret the question using:
+# Primary topic: {primary_topic}
+# """
+#     })
+
+#     return safe_llm_call(messages) or "No relevant data found."
+
+
+# # --------------------------------------------------
+# # MAIN RAG (FINAL FIXED)
+# # --------------------------------------------------
+
+# def generate_rag_answer(query: str, session_id: str, user, allowed_departments=None):
+
+#     try:
+
+#         if allowed_departments is None:
+#             allowed_departments = resolve_departments(user)
+
+#         history = memory.get_history(session_id)
+
+#         # 🔥 STEP 39 FIX — FOLLOW-UP HANDLING
+#         rewritten_query = rewrite_query(query, history)
+#         combined_query = rewritten_query.strip()
+
+#         raw_chunks = search_text(
+#             combined_query,
+#             department=allowed_departments,
+#             limit=30
+#         )
+
+#         cleaned_chunks = clean_chunks(raw_chunks)
+
+#         # 🔴 HARD FILTER (SECURITY)
+#         filtered_chunks = [
+#             c for c in cleaned_chunks
+#             if isinstance(c, dict)
+#             and c.get("department") is not None
+#             and c.get("department") in allowed_departments
+#         ]
+
+#         if not filtered_chunks:
+#             return {
+#                 "question": query,
+#                 "answer": "No relevant data found.",
+#                 "confidence": 0.0,
+#                 "grounded": False,
+#                 "sources": [],
+#                 "evaluation": "No department match",
+#                 "context_used": [],
+#                 "session_id": session_id
+#             }
+
+#         reranked = rerank_chunks(combined_query, filtered_chunks)
+
+#         texts = [c.get("text", "") for c in reranked if c.get("text")]
+#         sources = list({c.get("source", "unknown") for c in reranked})[:3]
+
+#         context = build_context(texts)
+
+#         if len(context) > MAX_CONTEXT_CHARS:
+#             context = context[:MAX_CONTEXT_CHARS]
+
+#         answer = generate_answer_from_llm(query, context, history)
+
+#         # 🔥 confidence fix
+#         confidence = calculate_confidence(texts) if answer != "No relevant data found." else 0.0
+
+#         return {
+#             "question": query,
+#             "answer": answer,
+#             "confidence": confidence,
+#             "grounded": True,
+#             "sources": sources,
+#             "evaluation": "Department-secure RAG",
+#             "context_used": texts,
+#             "session_id": session_id
+#         }
+
+#     except Exception as e:
+#         logger.error(f"RAG failed: {str(e)}")
+
+#         return {
+#             "question": query,
+#             "answer": "Internal error occurred.",
+#             "confidence": 0.0,
+#             "grounded": False,
+#             "sources": [],
+#             "evaluation": "Error",
+#             "context_used": [],
+#             "session_id": session_id
+#         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 import time
 from typing import List
 
@@ -7313,41 +7637,44 @@ def get_primary_topic(history):
 
 
 # --------------------------------------------------
-# QUERY REWRITE (STEP 39 FIX)
+# QUERY REWRITE — FIXED: uses full history to resolve follow-ups
 # --------------------------------------------------
 
-def rewrite_query(query: str, history: list):
+def rewrite_query(query: str, history: list) -> str:
+
+    if not history:
+        return query
 
     try:
-        recent_history = history[-3:] if history else []
-
+        # Build a readable conversation so the LLM has full context
         history_text = "\n".join(
-            [f"{msg['role']}: {msg['content']}" for msg in recent_history]
+            f"{msg['role'].upper()}: {msg['content']}"
+            for msg in history[-6:]
         )
 
-        prompt = f"""
-Rewrite the query for better retrieval.
-Make it standalone and clear.
+        prompt = f"""You are helping rewrite a follow-up question into a fully self-contained search query.
 
-Chat:
+Conversation so far:
 {history_text}
 
-Query:
-{query}
-"""
+Latest question: "{query}"
 
-        rewritten = safe_llm_call([
-            {"role": "user", "content": prompt}
-        ])
+Rules:
+- If the question is a follow-up (e.g. "how many days?", "what about paternity?", "and sick leave?"), rewrite it to include the topic from the conversation.
+- If the question is already clear and standalone, return it unchanged.
+- Return ONLY the rewritten question. No explanation. No quotes.
 
-        return rewritten if rewritten else query
+Rewritten question:"""
+
+        rewritten = safe_llm_call([{"role": "user", "content": prompt}])
+        return rewritten.strip() if rewritten else query
 
     except Exception:
         return query
 
 
 # --------------------------------------------------
-# CLEAN CHUNKS (CRITICAL FIX)
+# CLEAN CHUNKS
 # --------------------------------------------------
 
 def clean_chunks(raw_chunks):
@@ -7399,11 +7726,9 @@ def rerank_chunks(query: str, chunks: List[dict], top_k: int = 5):
             boost = 0
 
         final_score = semantic_score + (keyword_score * 0.05) + boost
-
         scored.append((final_score, chunk))
 
     scored.sort(key=lambda x: x[0], reverse=True)
-
     return [c[1] for c in scored[:top_k]]
 
 
@@ -7430,26 +7755,24 @@ def calculate_confidence(chunks: List[str]):
 
 
 # --------------------------------------------------
-# LLM ANSWER — FIXED: inject primary topic into prompt
+# LLM ANSWER — injects primary topic for follow-up awareness
 # --------------------------------------------------
 
 def generate_answer_from_llm(query: str, context: str, history):
 
     primary_topic = get_primary_topic(history)
 
-    system_prompt = f"""
-You are AstraMind.
+    system_prompt = f"""You are AstraMind, an enterprise HR assistant.
 
 STRICT RULES:
-- ONLY answer from provided context
+- ONLY answer from the provided context
 - If context is irrelevant → say "No relevant data found"
-- DO NOT guess
-- DO NOT use outside knowledge
+- DO NOT guess or use outside knowledge
 
 FOLLOW-UP HANDLING:
-- Primary topic: "{primary_topic}"
-- If the question is vague (e.g., "how many days", "how long")
-  → interpret it using the primary topic
+- The user's primary topic in this conversation is: "{primary_topic}"
+- If the question is vague (e.g. "how many days?", "how long?"), interpret it in the context of: "{primary_topic}"
+- Give a direct, specific answer — do not list all leave types unless explicitly asked
 """
 
     messages = [{"role": "system", "content": system_prompt.strip()}]
@@ -7459,23 +7782,19 @@ FOLLOW-UP HANDLING:
 
     messages.append({
         "role": "user",
-        "content": f"""
-Context:
+        "content": f"""Context:
 {context}
 
-Question:
-{query}
+Question: {query}
 
-If needed, interpret the question using:
-Primary topic: {primary_topic}
-"""
+Remember: interpret this question in the context of "{primary_topic}" if it is vague."""
     })
 
     return safe_llm_call(messages) or "No relevant data found."
 
 
 # --------------------------------------------------
-# MAIN RAG (FINAL FIXED)
+# MAIN RAG
 # --------------------------------------------------
 
 def generate_rag_answer(query: str, session_id: str, user, allowed_departments=None):
@@ -7487,19 +7806,19 @@ def generate_rag_answer(query: str, session_id: str, user, allowed_departments=N
 
         history = memory.get_history(session_id)
 
-        # 🔥 STEP 39 FIX — FOLLOW-UP HANDLING
+        # 🔥 Rewrite vague follow-up into standalone query using full history
         rewritten_query = rewrite_query(query, history)
-        combined_query = rewritten_query.strip()
+        logger.info(f"Original: '{query}' → Rewritten: '{rewritten_query}'")
 
         raw_chunks = search_text(
-            combined_query,
+            rewritten_query,
             department=allowed_departments,
             limit=30
         )
 
         cleaned_chunks = clean_chunks(raw_chunks)
 
-        # 🔴 HARD FILTER (SECURITY)
+        # Hard department filter
         filtered_chunks = [
             c for c in cleaned_chunks
             if isinstance(c, dict)
@@ -7519,7 +7838,7 @@ def generate_rag_answer(query: str, session_id: str, user, allowed_departments=N
                 "session_id": session_id
             }
 
-        reranked = rerank_chunks(combined_query, filtered_chunks)
+        reranked = rerank_chunks(rewritten_query, filtered_chunks)
 
         texts = [c.get("text", "") for c in reranked if c.get("text")]
         sources = list({c.get("source", "unknown") for c in reranked})[:3]
@@ -7531,7 +7850,6 @@ def generate_rag_answer(query: str, session_id: str, user, allowed_departments=N
 
         answer = generate_answer_from_llm(query, context, history)
 
-        # 🔥 confidence fix
         confidence = calculate_confidence(texts) if answer != "No relevant data found." else 0.0
 
         return {
