@@ -7894,6 +7894,302 @@
 
 
 
+# import time
+# from typing import List
+
+# from openai import OpenAI
+
+# from app.core.vector_store import search_text
+# from app.core.logger import logger
+# from app.services.memory_service import memory
+# from app.auth.permissions import resolve_departments
+
+# from app.config import (
+#     OPENAI_API_KEY,
+#     LLM_MODEL,
+#     MAX_CONTEXT_CHARS,
+# )
+
+# client = OpenAI(api_key=OPENAI_API_KEY)
+
+
+# # --------------------------------------------------
+# # SAFE LLM CALL
+# # --------------------------------------------------
+
+# def safe_llm_call(messages):
+#     try:
+#         response = client.chat.completions.create(
+#             model=LLM_MODEL,
+#             messages=messages,
+#             temperature=0,
+#         )
+#         return response.choices[0].message.content.strip()
+#     except Exception as e:
+#         logger.error(f"LLM ERROR: {str(e)}")
+#         return None
+
+
+# # --------------------------------------------------
+# # PRIMARY TOPIC
+# # --------------------------------------------------
+
+# def get_primary_topic(history):
+
+#     follow_up_words = ["how long", "how many", "what about", "and", "then", "is it", "how much"]
+
+#     for msg in reversed(history):
+#         if msg["role"] != "user":
+#             continue
+
+#         content = msg["content"].lower()
+
+#         if not any(f in content for f in follow_up_words):
+#             return msg["content"]
+
+#     return ""
+
+
+# # --------------------------------------------------
+# # QUERY REWRITE — uses full history to resolve follow-ups
+# # --------------------------------------------------
+
+# def rewrite_query(query: str, history: list) -> str:
+
+#     if not history:
+#         return query
+
+#     try:
+#         history_text = "\n".join(
+#             f"{msg['role'].upper()}: {msg['content']}"
+#             for msg in history[-6:]
+#         )
+
+#         prompt = f"""You are helping rewrite a follow-up question into a fully self-contained search query.
+
+# Conversation so far:
+# {history_text}
+
+# Latest question: "{query}"
+
+# Rules:
+# - If the question is a follow-up (e.g. "how many days?", "what about paternity?", "how long is it?"), rewrite it to include the specific topic from the conversation.
+# - If the question is already clear and standalone, return it unchanged.
+# - Return ONLY the rewritten question. No explanation. No quotes.
+
+# Rewritten question:"""
+
+#         rewritten = safe_llm_call([{"role": "user", "content": prompt}])
+#         return rewritten.strip() if rewritten else query
+
+#     except Exception:
+#         return query
+
+
+# # --------------------------------------------------
+# # RERANK
+# # --------------------------------------------------
+
+# def rerank_chunks(query: str, chunks: List[dict], top_k: int = 5):
+
+#     query_words = set(query.lower().split())
+#     scored = []
+
+#     for chunk in chunks:
+
+#         if not isinstance(chunk, dict):
+#             continue
+
+#         text = chunk.get("text", "").lower()
+#         keyword_score = sum(1 for w in query_words if w in text)
+#         semantic_score = chunk.get("score", 0)
+
+#         source = chunk.get("source", "")
+
+#         if ".pdf" in source.lower():
+#             boost = 0.6
+#         elif "http" in source.lower() and "github" not in source.lower():
+#             boost = 0.4
+#         elif "github" in source.lower():
+#             boost = -0.3
+#         else:
+#             boost = 0
+
+#         final_score = semantic_score + (keyword_score * 0.05) + boost
+#         scored.append((final_score, chunk))
+
+#     scored.sort(key=lambda x: x[0], reverse=True)
+#     return [c[1] for c in scored[:top_k]]
+
+
+# # --------------------------------------------------
+# # CONTEXT
+# # --------------------------------------------------
+
+# def build_context(chunks: List[str]):
+#     return "\n\n".join(chunks)
+
+
+# def calculate_confidence(chunks: List[str]):
+
+#     total_chars = sum(len(c) for c in chunks)
+
+#     if total_chars < 50:
+#         return 0.2
+#     if total_chars < 200:
+#         return 0.5
+#     if total_chars < 600:
+#         return 0.75
+
+#     return 0.9
+
+
+# # --------------------------------------------------
+# # LLM ANSWER — focused on primary topic, no over-strict rules
+# # --------------------------------------------------
+
+# def generate_answer_from_llm(query: str, context: str, history):
+
+#     primary_topic = get_primary_topic(history)
+
+#     system_prompt = f"""You are AstraMind, an enterprise HR assistant.
+
+# RULES:
+# - Answer using ONLY the provided context
+# - The conversation topic is: "{primary_topic}"
+# - If the question is vague (e.g. "how many days?", "how long is it?"), interpret it as being about: "{primary_topic}"
+# - Give a direct, specific answer about the topic
+# - Do NOT list all leave types unless explicitly asked for all of them
+# - If the context truly has no relevant information, say "No relevant data found"
+# """
+
+#     messages = [{"role": "system", "content": system_prompt.strip()}]
+
+#     for msg in history[-6:]:
+#         messages.append(msg)
+
+#     messages.append({
+#         "role": "user",
+#         "content": f"""Context:
+# {context}
+
+# Question: {query}"""
+#     })
+
+#     answer = safe_llm_call(messages)
+#     return answer if answer else "I could not generate a response."
+
+
+# # --------------------------------------------------
+# # MAIN RAG
+# # --------------------------------------------------
+
+# def generate_rag_answer(query: str, session_id: str, user, allowed_departments=None):
+
+#     try:
+
+#         # 🔥 resolve departments from full user dict
+#         if allowed_departments is None:
+#             allowed_departments = resolve_departments(user)
+
+#         history = memory.get_history(session_id)
+
+#         # 🔥 get primary topic for combined query (better retrieval on follow-ups)
+#         primary_topic = get_primary_topic(history)
+
+#         # 🔥 rewrite vague follow-up into standalone query
+#         rewritten_query = rewrite_query(query, history)
+
+#         # 🔥 combine primary topic + rewritten query for retrieval
+#         combined_query = f"{primary_topic} {rewritten_query}".strip()
+
+#         logger.info(f"Original: '{query}' | Rewritten: '{rewritten_query}' | Combined: '{combined_query}'")
+
+#         retrieved_chunks = search_text(
+#             combined_query,
+#             department=allowed_departments,
+#             limit=30
+#         )
+
+#         # hard department filter
+#         filtered_chunks = [
+#             c for c in retrieved_chunks
+#             if isinstance(c, dict)
+#             and c.get("department") in allowed_departments
+#         ]
+
+#         if not filtered_chunks:
+#             return {
+#                 "question": query,
+#                 "answer": "No relevant data found.",
+#                 "confidence": 0.0,
+#                 "grounded": False,
+#                 "sources": [],
+#                 "evaluation": "No department match",
+#                 "context_used": [],
+#                 "session_id": session_id
+#             }
+
+#         reranked = rerank_chunks(combined_query, filtered_chunks)
+
+#         texts = [c.get("text", "") for c in reranked if c.get("text")]
+#         sources = list({c.get("source", "unknown") for c in reranked})[:3]
+
+#         context = build_context(texts)
+
+#         if len(context) > MAX_CONTEXT_CHARS:
+#             context = context[:MAX_CONTEXT_CHARS]
+
+#         answer = generate_answer_from_llm(query, context, history)
+
+#         confidence = calculate_confidence(texts) if answer != "No relevant data found." else 0.0
+
+#         return {
+#             "question": query,
+#             "answer": answer,
+#             "confidence": confidence,
+#             "grounded": True,
+#             "sources": sources,
+#             "evaluation": "Department-secure RAG",
+#             "context_used": texts,
+#             "session_id": session_id
+#         }
+
+#     except Exception as e:
+#         logger.error(f"RAG failed: {str(e)}")
+
+#         return {
+#             "question": query,
+#             "answer": "Internal error occurred.",
+#             "confidence": 0.0,
+#             "grounded": False,
+#             "sources": [],
+#             "evaluation": "Error",
+#             "context_used": [],
+#             "session_id": session_id
+#         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 import time
 from typing import List
 
@@ -7973,9 +8269,9 @@ Conversation so far:
 Latest question: "{query}"
 
 Rules:
-- If the question is a follow-up (e.g. "how many days?", "what about paternity?", "how long is it?"), rewrite it to include the specific topic from the conversation.
-- If the question is already clear and standalone, return it unchanged.
-- Return ONLY the rewritten question. No explanation. No quotes.
+- If the question is a follow-up, rewrite it with full context
+- If already clear, return as is
+- Return ONLY the rewritten question
 
 Rewritten question:"""
 
@@ -8045,7 +8341,7 @@ def calculate_confidence(chunks: List[str]):
 
 
 # --------------------------------------------------
-# LLM ANSWER — focused on primary topic, no over-strict rules
+# LLM ANSWER
 # --------------------------------------------------
 
 def generate_answer_from_llm(query: str, context: str, history):
@@ -8055,12 +8351,10 @@ def generate_answer_from_llm(query: str, context: str, history):
     system_prompt = f"""You are AstraMind, an enterprise HR assistant.
 
 RULES:
-- Answer using ONLY the provided context
-- The conversation topic is: "{primary_topic}"
-- If the question is vague (e.g. "how many days?", "how long is it?"), interpret it as being about: "{primary_topic}"
-- Give a direct, specific answer about the topic
-- Do NOT list all leave types unless explicitly asked for all of them
-- If the context truly has no relevant information, say "No relevant data found"
+- Answer ONLY from context
+- Topic: "{primary_topic}"
+- Resolve vague follow-ups using topic
+- If no data → "No relevant data found"
 """
 
     messages = [{"role": "system", "content": system_prompt.strip()}]
@@ -8081,29 +8375,49 @@ Question: {query}"""
 
 
 # --------------------------------------------------
-# MAIN RAG
+# MAIN RAG (FINAL FIXED)
 # --------------------------------------------------
 
 def generate_rag_answer(query: str, session_id: str, user, allowed_departments=None):
 
     try:
 
-        # 🔥 resolve departments from full user dict
+        # 🔥 STEP 1 — ROLE VALIDATION (NEW FIX)
+        user_role = user.get("role", "user")
+
+        is_valid = memory.validate_session_role(session_id, user_role)
+
+        if not is_valid:
+            memory.reset_session(session_id)
+
+            return {
+                "question": query,
+                "answer": "Session reset due to role change. Please ask your question again.",
+                "confidence": 1.0,
+                "grounded": False,
+                "sources": [],
+                "evaluation": "Role-switch protection",
+                "context_used": [],
+                "session_id": session_id
+            }
+
+        # bind role if first time
+        memory.set_session_role(session_id, user_role)
+
+        # 🔥 resolve departments
         if allowed_departments is None:
             allowed_departments = resolve_departments(user)
 
         history = memory.get_history(session_id)
 
-        # 🔥 get primary topic for combined query (better retrieval on follow-ups)
         primary_topic = get_primary_topic(history)
 
-        # 🔥 rewrite vague follow-up into standalone query
         rewritten_query = rewrite_query(query, history)
 
-        # 🔥 combine primary topic + rewritten query for retrieval
         combined_query = f"{primary_topic} {rewritten_query}".strip()
 
         logger.info(f"Original: '{query}' | Rewritten: '{rewritten_query}' | Combined: '{combined_query}'")
+        logger.info(f"VECTOR SEARCH FILTER: {allowed_departments}")
 
         retrieved_chunks = search_text(
             combined_query,
@@ -8111,12 +8425,14 @@ def generate_rag_answer(query: str, session_id: str, user, allowed_departments=N
             limit=30
         )
 
-        # hard department filter
+        # strict department filter
         filtered_chunks = [
             c for c in retrieved_chunks
             if isinstance(c, dict)
             and c.get("department") in allowed_departments
         ]
+
+        logger.info(f"RESULTS AFTER STRICT FILTER: {len(filtered_chunks)}")
 
         if not filtered_chunks:
             return {
@@ -8143,6 +8459,10 @@ def generate_rag_answer(query: str, session_id: str, user, allowed_departments=N
         answer = generate_answer_from_llm(query, context, history)
 
         confidence = calculate_confidence(texts) if answer != "No relevant data found." else 0.0
+
+        # 🔥 store memory AFTER answer
+        memory.add_message(session_id, "user", query)
+        memory.add_message(session_id, "assistant", answer)
 
         return {
             "question": query,
