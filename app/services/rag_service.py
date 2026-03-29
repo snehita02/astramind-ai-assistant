@@ -8832,9 +8832,6 @@
 
 
 
-
-
-import time
 from typing import List
 
 from openai import OpenAI
@@ -8907,8 +8904,7 @@ def rewrite_query(query, history):
             f"{m['role']}: {m['content']}" for m in history[-6:]
         )
 
-        prompt = f"""
-Rewrite this into a standalone query.
+        prompt = f"""Rewrite this into a standalone query using the conversation context.
 
 Conversation:
 {history_text}
@@ -8916,18 +8912,17 @@ Conversation:
 Query:
 {query}
 
-Return ONLY final query.
-"""
+Return ONLY the final rewritten query. No explanation."""
 
         rewritten = safe_llm_call([{"role": "user", "content": prompt}])
-        return rewritten if rewritten else query
+        return rewritten.strip() if rewritten else query
 
     except Exception:
         return query
 
 
 # --------------------------------------------------
-# 🚨 HARD FILTER (CRITICAL FIX)
+# HARD DEPARTMENT FILTER
 # --------------------------------------------------
 
 def strict_department_filter(chunks, allowed_departments):
@@ -8941,7 +8936,6 @@ def strict_department_filter(chunks, allowed_departments):
 
         dept = c.get("department")
 
-        # 🔥 HARD BLOCK
         if not dept:
             continue
 
@@ -8968,7 +8962,18 @@ def rerank_chunks(query: str, chunks: List[dict], top_k: int = 5):
         keyword_score = sum(1 for w in query_words if w in text)
         semantic_score = chunk.get("score", 0)
 
-        final_score = semantic_score + keyword_score * 0.05
+        source = chunk.get("source", "")
+
+        if ".pdf" in source.lower():
+            boost = 0.6
+        elif "http" in source.lower() and "github" not in source.lower():
+            boost = 0.4
+        elif "github" in source.lower():
+            boost = -0.3
+        else:
+            boost = 0
+
+        final_score = semantic_score + (keyword_score * 0.05) + boost
         scored.append((final_score, chunk))
 
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -8984,12 +8989,25 @@ def build_context(chunks):
 
 
 # --------------------------------------------------
-# ANSWER
+# LLM ANSWER
 # --------------------------------------------------
 
 def generate_answer_from_llm(query, context, history):
 
-    messages = [{"role": "system", "content": "Answer ONLY from context."}]
+    primary_topic = get_primary_topic(history)
+
+    system_prompt = f"""You are AstraMind, an enterprise HR assistant.
+
+RULES:
+- Answer using ONLY the provided context
+- The conversation topic is: "{primary_topic}"
+- If the question is vague (e.g. "how many days?", "how long is it?"), interpret it as being about: "{primary_topic}"
+- Give a direct, specific answer about the topic
+- Do NOT list all leave types unless explicitly asked
+- If the context truly has no relevant information, say "No relevant data found"
+"""
+
+    messages = [{"role": "system", "content": system_prompt.strip()}]
 
     for msg in history[-6:]:
         messages.append(msg)
@@ -8999,23 +9017,22 @@ def generate_answer_from_llm(query, context, history):
         "content": f"Context:\n{context}\n\nQuestion:\n{query}"
     })
 
-    return safe_llm_call(messages) or "No relevant data found"
+    return safe_llm_call(messages) or "No relevant data found."
 
 
 # --------------------------------------------------
 # MAIN RAG
 # --------------------------------------------------
 
-def generate_rag_answer(query, session_id, user):
+def generate_rag_answer(query, session_id, user, allowed_departments=None):
 
     try:
 
         role = user.get("role", "user")
 
-        # ROLE VALIDATION
+        # ROLE VALIDATION — protect against session hijacking
         if not memory.validate_session_role(session_id, role):
             memory.reset_session(session_id)
-
             return {
                 "question": query,
                 "answer": "Session reset due to role change. Please ask again.",
@@ -9029,31 +9046,33 @@ def generate_rag_answer(query, session_id, user):
 
         memory.set_session_role(session_id, role)
 
-        allowed_departments = resolve_departments(user)
+        # DEPARTMENTS
+        if allowed_departments is None:
+            allowed_departments = resolve_departments(user)
 
         history = memory.get_history(session_id)
 
+        # QUERY — rewrite + combine with primary topic for follow-ups
         rewritten = rewrite_query(query, history)
 
         if is_follow_up(query) and history:
             primary = get_primary_topic(history)
-            final_query = f"{primary} {rewritten}"
+            final_query = f"{primary} {rewritten}".strip()
         else:
             final_query = rewritten
 
         logger.info(f"QUERY: {final_query}")
-        logger.info(f"ALLOWED: {allowed_departments}")
+        logger.info(f"ALLOWED DEPTS: {allowed_departments}")
 
+        # 🔥 FIX: pass department to search_text for pre-filtering at vector level
         raw_chunks = search_text(
             final_query,
+            department=allowed_departments,
             limit=30
         )
 
-        # 🔥 CRITICAL FIX APPLIED HERE
-        filtered_chunks = strict_department_filter(
-            raw_chunks,
-            allowed_departments
-        )
+        # 🔥 HARD POST-FILTER: double-check department on every chunk
+        filtered_chunks = strict_department_filter(raw_chunks, allowed_departments)
 
         logger.info(f"AFTER FILTER: {len(filtered_chunks)}")
 
@@ -9071,13 +9090,17 @@ def generate_rag_answer(query, session_id, user):
 
         reranked = rerank_chunks(final_query, filtered_chunks)
 
-        texts = [c.get("text", "") for c in reranked]
+        texts = [c.get("text", "") for c in reranked if c.get("text")]
         sources = list({c.get("source", "unknown") for c in reranked})[:3]
 
         context = build_context(texts)
 
+        if len(context) > MAX_CONTEXT_CHARS:
+            context = context[:MAX_CONTEXT_CHARS]
+
         answer = generate_answer_from_llm(query, context, history)
 
+        # save to memory AFTER generating answer
         memory.add_message(session_id, "user", query)
         memory.add_message(session_id, "assistant", answer)
 
