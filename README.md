@@ -15,6 +15,7 @@ Built with FastAPI, OpenAI, and Retrieval-Augmented Generation (RAG).
 ⚡ Semantic vector search via embeddings
 🌐 FastAPI REST API
 ☁️ Cloud deployment support (Docker + Render)
+<img width="535" height="542" alt="image" src="https://github.com/user-attachments/assets/c1035cb7-add8-40a1-8d5c-e5eac4f77baa" />
 
 
 🏗️ Architecture
