@@ -24,12 +24,16 @@ Users can only query documents from departments they are authorized to access.
 <img width="471" height="273" alt="image" src="https://github.com/user-attachments/assets/de6e2658-64c7-47ff-987a-9bc59153ae4e" />
 
 
+
+
 ⚙️ Prerequisites
 Before running locally, make sure you have:
 
 Python 3.9+
 An OpenAI API key
 Docker (optional, for containerized deployment)
+
+
 
 
 🚀 Running Locally
@@ -50,11 +54,15 @@ DATABASE_URL=sqlite:///./astramind.db
 bashuvicorn app.main:app --reload
 Open the interactive API docs at http://127.0.0.1:8000/docs
 
+
+
 📡 API Endpoints
 
 <img width="512" height="297" alt="image" src="https://github.com/user-attachments/assets/bca9728d-2264-46c8-9944-cf96aa5ddfd0" />
 
 
 👩‍💻 Author
+
 Snehita Bharata
+
 Designed and developed AstraMind as an enterprise AI knowledge assistant focused on secure retrieval, intelligent conversation management, and department-aware access control.
