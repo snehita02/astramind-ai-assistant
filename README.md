@@ -7,7 +7,16 @@ An enterprise AI knowledge assistant that lets employees ask questions about com
 Built with FastAPI, OpenAI, and Retrieval-Augmented Generation (RAG).
 
 ✨ Features
-Feature🔍RAG-powered answers grounded in your actual company documents🧠Context-aware follow-ups — remembers what was asked earlier in the session💬Persistent conversation memory across sessions🔐JWT Authentication🛡️Role-Based Access Control (RBAC) — department-level data isolation📄PDF and document knowledge retrieval⚡Semantic vector search via embeddings🌐FastAPI REST API☁️Cloud deployment support (Docker + Render)
+
+🔍RAG-powered answers grounded in your actual company documents
+🧠Context-aware follow-ups — remembers what was asked earlier in the session
+💬Persistent conversation memory across sessions
+🔐JWT Authentication
+🛡️Role-Based Access Control (RBAC) — department-level data isolation
+📄PDF and document knowledge retrieval
+⚡Semantic vector search via embeddings
+🌐FastAPI REST API
+☁️Cloud deployment support (Docker + Render)
 
 
 
@@ -73,7 +82,6 @@ Open the interactive API docs at http://127.0.0.1:8000/docs
 
 
 
-👩‍💻 Author
-Snehita Bharata
+👩‍💻 Author - Snehita Bharata
 
 Designed and developed AstraMind as an enterprise AI knowledge assistant focused on secure retrieval, intelligent conversation management, and department-aware access control.
